@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1"
+  />
+  <meta name="theme-color" content="#0c0e12" />
+  <meta name="description" content="Sudoku in drie dimensies: elke snede van de kubus, in alle drie de richtingen, is een geldige sudoku." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sudoku³" />
+  <title>Sudoku³ · 3D Sudoku</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preload" href="fonts/manrope-latin-wght.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="css/styles.css?v=1" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body class="view-picker">
+  <div class="app">
+    <header class="topbar">
+      <button id="back" class="icon-btn" aria-label="Terug naar puzzels" hidden>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div id="brand" class="brand" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M16 3l11 6.3v13.4L16 29 5 22.7V9.3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 9.3L16 15.6 27 9.3M16 15.6V29" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </div>
+      <h1 id="title" class="title">
+        <span class="title-main">Sudoku<sup>3</sup></span>
+        <span class="title-sub">in drie dimensies</span>
+      </h1>
+      <div class="top-actions">
+        <button id="reset" class="icon-btn" aria-label="Puzzel opnieuw beginnen" hidden>
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+        </button>
+        <button id="help-btn" class="icon-btn" aria-label="Spelregels en bediening">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><path d="M12 17h.01"/></svg>
+        </button>
+        <button id="settings-btn" class="icon-btn" aria-label="Instellingen">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section id="stage" class="stage" aria-label="3D-kubus">
+      <div class="hud hud-tl game-only">
+        <span id="meta-diff" class="pill"></span>
+        <span id="meta-progress" class="chip"></span>
+        <span id="meta-time" class="chip time">00:00</span>
+      </div>
+      <div class="hud hud-tr game-only">
+        <button id="view-reset" class="glass-btn" aria-label="Beeld herstellen" title="Beeld herstellen">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>
+        </button>
+        <button id="view-face" class="glass-btn" aria-label="Recht op de laag kijken" title="Recht op de laag kijken">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9.7 5v14M14.3 5v14M5 9.7h14M5 14.3h14"/></svg>
+        </button>
+      </div>
+      <div class="hero-copy picker-only">
+        <p class="hero-kicker">Echte 3D-sudoku</p>
+        <p class="hero-line">Elke snede van de kubus — in alle drie de richtingen — is een geldige sudoku.</p>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <div id="solved" class="solved" hidden>
+        <div class="solved-card">
+          <p class="solved-kicker">Opgelost</p>
+          <p id="solved-time" class="solved-time">00:00</p>
+          <div class="solved-actions">
+            <button id="solved-list" class="btn ghost">Puzzels</button>
+            <button id="solved-next" class="btn primary">Volgende</button>
+          </div>
+        </div>
+      </div>
+      <div id="webgl-error" class="webgl-error" hidden>
+        Deze browser kan geen WebGL tonen. Probeer een recente versie van Edge, Chrome, Safari of Firefox.
+      </div>
+    </section>
+
+    <section id="picker" class="picker">
+      <div class="size-tabs" role="tablist" aria-label="Formaat">
+        <button class="size-tab" data-size="4" role="tab">
+          <span class="size-name">Mini</span><span class="size-dim">4 × 4 × 4</span>
+        </button>
+        <button class="size-tab" data-size="9" role="tab">
+          <span class="size-name">Kubus</span><span class="size-dim">9 × 9 × 9</span>
+        </button>
+      </div>
+      <div class="tier-tabs" role="tablist" aria-label="Moeilijkheid">
+        <button data-tier="all" class="tier-tab active">Alle</button>
+        <button data-tier="easy" class="tier-tab">Eenvoudig</button>
+        <button data-tier="medium" class="tier-tab">Gemiddeld</button>
+        <button data-tier="hard" class="tier-tab">Moeilijk</button>
+        <button data-tier="expert" class="tier-tab">Expert</button>
+      </div>
+      <div id="puzzle-list" class="puzzle-list"></div>
+      <button id="rules-card" class="rules-card">
+        <span class="rules-title">Hoe werkt een 3D-sudoku?</span>
+        <span class="rules-text">Regels, opties en bediening in één minuut.</span>
+      </button>
+    </section>
+
+    <section id="controls" class="controls" hidden>
+      <div class="toolbar">
+        <div id="mode-seg" class="seg" role="radiogroup" aria-label="Weergave">
+          <button data-mode="cube" role="radio" aria-label="Hele kubus" title="Hele kubus (C)">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>
+            <span>Kubus</span>
+          </button>
+          <button data-mode="layer" role="radio" aria-label="Eén laag" title="Eén laag (L)">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l9 4.5-9 4.5-9-4.5z"/><path d="M3 13l9 4.5 9-4.5" opacity=".55"/><path d="M3 17l9 4.5 9-4.5" opacity=".3"/></svg>
+            <span>Laag</span>
+          </button>
+          <button data-mode="focus" role="radio" aria-label="Focus op cel" title="Focus: alleen de buren van de cel (F)">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2.6"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5"/></svg>
+            <span>Focus</span>
+          </button>
+        </div>
+        <div id="axis-seg" class="seg axis-seg" role="radiogroup" aria-label="Richting van de lagen">
+          <button data-axis="0" role="radio" title="Lagen langs X">X</button>
+          <button data-axis="1" role="radio" title="Lagen langs Y">Y</button>
+          <button data-axis="2" role="radio" title="Lagen langs Z">Z</button>
+        </div>
+        <div class="stepper" aria-label="Laag">
+          <button id="layer-prev" aria-label="Vorige laag">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <span id="layer-label" class="layer-label"><b>5</b><small>/9</small></span>
+          <button id="layer-next" aria-label="Volgende laag">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="pad" class="pad"></div>
+      <div class="actions">
+        <button id="undo" class="action">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+          <span>Terug</span>
+        </button>
+        <button id="notes" class="action" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+          <span>Opties</span>
+        </button>
+        <button id="autonotes" class="action">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01"/></svg>
+          <span>Auto</span>
+        </button>
+        <button id="hint" class="action">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3z"/></svg>
+          <span>Hint</span>
+        </button>
+        <button id="erase" class="action">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l6-6a2 2 0 0 1 2.83 0l6.34 6.34a2 2 0 0 1 0 2.83l-3.17 3.17H9L3 12z"/><path d="M9 18l-2.5-2.5"/></svg>
+          <span>Wis</span>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="help" class="sheet" aria-labelledby="help-title">
+    <form method="dialog" class="sheet-inner">
+      <header class="sheet-head">
+        <h2 id="help-title">Zo werkt Sudoku³</h2>
+        <button class="icon-btn" value="close" aria-label="Sluiten">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="sheet-body">
+        <h3>De regel</h3>
+        <p>De kubus bestaat uit cellen in drie richtingen: X (breedte), Y (hoogte) en Z (diepte). Vul elke cel zo dat</p>
+        <ul>
+          <li>elke <b>rij</b>, <b>kolom</b> en <b>pilaar</b> (rechte lijn in X, Y of Z) elk cijfer precies één keer bevat;</li>
+          <li>elk <b>blok</b> in elke snede — in alle drie de richtingen — elk cijfer precies één keer bevat.</li>
+        </ul>
+        <p>Daardoor is iedere laag die je uit de kubus snijdt, horizontaal of verticaal, zelf een gewone sudoku. Elke cel telt dus mee in zes groepen tegelijk. De Mini gebruikt de cijfers 1–4 met blokken van 2 × 2, de Kubus 1–9 met blokken van 3 × 3.</p>
+
+        <h3>Weergaven</h3>
+        <ul>
+          <li><b>Kubus</b> — de hele kubus. Tik een cel om hem te kiezen.</li>
+          <li><b>Laag</b> — één snede, opengeklapt. Kies de richting met X / Y / Z en blader met ‹ ›. De buren van je cel buiten de laag blijven zichtbaar.</li>
+          <li><b>Focus</b> — alleen de zes groepen van de gekozen cel: drie lijnen en drie blokken.</li>
+        </ul>
+
+        <h3>Bediening</h3>
+        <ul>
+          <li><b>Draaien</b>: sleep met één vinger of de muis.</li>
+          <li><b>Zoomen</b>: knijp met twee vingers of scroll.</li>
+          <li><b>Verschuiven</b>: sleep met twee vingers, of met rechtermuisknop / Shift.</li>
+          <li>Rechtsboven: <b>beeld herstellen</b> en <b>recht op de laag kijken</b>.</li>
+        </ul>
+
+        <h3>Invullen</h3>
+        <ul>
+          <li><b>Opties</b> zet kleine potloodcijfers in een cel in plaats van een definitief cijfer.</li>
+          <li><b>Auto</b> vult in alle lege cellen de nog mogelijke opties in.</li>
+          <li><b>Hint</b> wijst een cel aan die logisch vast te leggen is, of meldt foute cijfers.</li>
+          <li>Een ingevuld cijfer wist die optie automatisch bij alle buren.</li>
+        </ul>
+
+        <h3>Toetsenbord</h3>
+        <p class="keys"><kbd>1</kbd>–<kbd>9</kbd> invullen · <kbd>⌫</kbd> wissen · pijltjes verplaatsen · <kbd>[</kbd> <kbd>]</kbd> laag · <kbd>X</kbd> <kbd>Y</kbd> <kbd>Z</kbd> richting · <kbd>C</kbd> <kbd>L</kbd> <kbd>F</kbd> weergave · <kbd>N</kbd> opties · <kbd>H</kbd> hint · <kbd>Ctrl</kbd>+<kbd>Z</kbd> terug</p>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+    <form method="dialog" class="sheet-inner">
+      <header class="sheet-head">
+        <h2 id="settings-title">Instellingen</h2>
+        <button class="icon-btn" value="close" aria-label="Sluiten">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="sheet-body settings">
+        <div class="setting">
+          <span class="setting-label">Thema</span>
+          <div id="theme-seg" class="seg small" role="radiogroup" aria-label="Thema">
+            <button type="button" data-theme="dark" role="radio">Donker</button>
+            <button type="button" data-theme="light" role="radio">Licht</button>
+          </div>
+        </div>
+        <label class="setting">
+          <span class="setting-label">Ruimte tussen cellen</span>
+          <input id="spacing" type="range" min="0" max="1" step="0.05" />
+        </label>
+        <label class="setting toggle">
+          <span>
+            <span class="setting-label">Camera volgt de laag</span>
+            <span class="setting-help">Draai mee als je van laag of richting wisselt.</span>
+          </span>
+          <input id="auto-face" type="checkbox" />
+        </label>
+        <label class="setting toggle">
+          <span>
+            <span class="setting-label">Markeer onmogelijke cijfers</span>
+            <span class="setting-help">Dimt cijfers op het toetsenblok die al bij een buur staan.</span>
+          </span>
+          <input id="assist" type="checkbox" />
+        </label>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/main.js?v=1"></script>
+</body>
+</html>
