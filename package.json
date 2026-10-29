@@ -1,0 +1,10 @@
+{
+  "name": "sudoku3d",
+  "private": true,
+  "type": "module",
+  "description": "Sudoku in drie dimensies",
+  "scripts": {
+    "generate": "node scripts/generate-puzzles.mjs",
+    "serve": "python3 -m http.server 8000"
+  }
+}
