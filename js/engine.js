@@ -1,68 +1,71 @@
-// Cube geometry, solver and generator for N×N×N sudoku cubes (N = 4 or 9).
+// Grid geometry, solver and generator for sudoku in three and four dimensions.
 //
-// Rules: every straight line along X, Y and Z contains each digit once, and
-// every box in every slice — in all three orientations — contains each digit
-// once. So each of the 3·N slices is itself a valid sudoku.
+// 3D (N×N×N, N = 4 or 9): every straight line along X, Y and Z contains each
+// digit once, and every box in every slice — in all three orientations —
+// contains each digit once. So each of the 3·N slices is itself a sudoku.
 //
-// Cell index: i = x + N·y + N²·z.
+// 4D (4×4×4×4, the tesseract): every line along X, Y, Z and W contains 1–4,
+// and every 2×2 box in five of the six plane orientations does too. All six
+// is impossible for N = 4: the 16 cells of one 2×2×2×2 block would then need
+// pairwise distinct digits whenever they differ in one or two coordinates,
+// and a binary code of length 4 with distance 3 has only 2 words, so 8
+// digits would be needed. The ZW plane is the one left without boxes, which
+// keeps every W-slice a complete 3D sudoku.
+//
+// Cell index: i = x + N·y + N²·z (+ N³·w).
 
-const cubeCache = new Map();
+const gridCache = new Map();
 
 export function getCube(n) {
-  if (!cubeCache.has(n)) cubeCache.set(n, buildCube(n));
-  return cubeCache.get(n);
+  return getGrid(n, 3, []);
 }
 
-function buildCube(n) {
+export function getTesseract(n = 4) {
+  return getGrid(n, 4, [[2, 3]]);
+}
+
+function getGrid(n, d, missing) {
+  const key = `${n}:${d}:${JSON.stringify(missing)}`;
+  if (!gridCache.has(key)) gridCache.set(key, buildGrid(n, d, missing));
+  return gridCache.get(key);
+}
+
+function buildGrid(n, d, missing) {
   const b = Math.round(Math.sqrt(n));
-  const size = n * n * n;
+  const size = n ** d;
   const full = (1 << n) - 1;
-  const index = (x, y, z) => x + n * (y + n * z);
+  const stride = Array.from({ length: d }, (_, a) => n ** a);
+  const index = (...c) => c.reduce((s, v, a) => s + v * stride[a], 0);
   const coords = new Array(size);
-  for (let i = 0; i < size; i++) {
-    coords[i] = [i % n, ((i / n) | 0) % n, (i / (n * n)) | 0];
+  for (let i = 0; i < size; i++) coords[i] = stride.map((st) => Math.floor(i / st) % n);
+
+  const planes = [];
+  for (let u = 0; u < d; u++) {
+    for (let v = u + 1; v < d; v++) {
+      if (!missing.some(([p, q]) => p === u && q === v)) planes.push([u, v]);
+    }
   }
 
   // Houses: lines first, then boxes. `axis` is the direction of a line;
-  // `plane` is the axis held constant for a box.
+  // `plane` holds the two axes a box spans.
   const houses = [];
   const houseInfo = [];
-  for (let axis = 0; axis < 3; axis++) {
-    for (let a = 0; a < n; a++) {
-      for (let c = 0; c < n; c++) {
-        const cells = [];
-        for (let t = 0; t < n; t++) {
-          const p = [0, 0, 0];
-          p[axis] = t;
-          p[(axis + 1) % 3] = a;
-          p[(axis + 2) % 3] = c;
-          cells.push(index(p[0], p[1], p[2]));
-        }
-        houses.push(cells);
-        houseInfo.push({ kind: "line", axis });
-      }
+  for (let axis = 0; axis < d; axis++) {
+    for (let i = 0; i < size; i++) {
+      if (coords[i][axis] !== 0) continue;
+      houses.push(Array.from({ length: n }, (_, t) => i + t * stride[axis]));
+      houseInfo.push({ kind: "line", axis });
     }
   }
-  for (let plane = 0; plane < 3; plane++) {
-    const u = (plane + 1) % 3;
-    const v = (plane + 2) % 3;
-    for (let k = 0; k < n; k++) {
-      for (let bu = 0; bu < b; bu++) {
-        for (let bv = 0; bv < b; bv++) {
-          const cells = [];
-          for (let du = 0; du < b; du++) {
-            for (let dv = 0; dv < b; dv++) {
-              const p = [0, 0, 0];
-              p[plane] = k;
-              p[u] = bu * b + du;
-              p[v] = bv * b + dv;
-              cells.push(index(p[0], p[1], p[2]));
-            }
-          }
-          houses.push(cells);
-          houseInfo.push({ kind: "box", plane });
-        }
+  for (const [u, v] of planes) {
+    for (let i = 0; i < size; i++) {
+      if (coords[i][u] % b || coords[i][v] % b) continue;
+      const cells = [];
+      for (let du = 0; du < b; du++) {
+        for (let dv = 0; dv < b; dv++) cells.push(i + du * stride[u] + dv * stride[v]);
       }
+      houses.push(cells);
+      houseInfo.push({ kind: "box", plane: [u, v] });
     }
   }
 
@@ -92,7 +95,7 @@ function buildCube(n) {
     }
   }
 
-  return { n, b, size, full, index, coords, houses, houseInfo, cellHouses, peers, overlaps };
+  return { n, b, d, size, full, index, coords, planes, houses, houseInfo, cellHouses, peers, overlaps };
 }
 
 export const popcount = (m) => {
@@ -240,6 +243,12 @@ export function countSolutions(cube, values, limit = 2) {
  * permutation and a digit relabelling.
  */
 export function randomSolution(cube, rng = Math.random) {
+  if (cube.d !== 3) {
+    // The 4×4×4×4 tesseract is small enough for randomised backtracking.
+    const found = [];
+    search(cube, initState(cube, new Uint8Array(cube.size)), 1, found, rng);
+    return found[0];
+  }
   const { n, b, size, index } = cube;
   const rand = (k) => Math.floor(rng() * k);
   const indep = (p, q) => (p[0] * q[1] - p[1] * q[0]) % b !== 0;
