@@ -20,48 +20,62 @@ const FACE_DIR = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new TH
 
 export const THEMES = {
   dark: {
-    empty: 0x3a465c,
-    given: 0x6e7990,
-    user: 0x35574c,
-    selected: 0xf3cca0,
-    peer: 0x3c5878,
-    same: 0x6a5794,
-    conflict: 0x8f4453,
-    glyphGiven: 0xf4f6fa,
-    glyphUser: 0xa9ecc3,
-    glyphConflict: 0xffb3c1,
-    note: 0xd9c6ff,
-    halo: 0xffc98f,
-    plate: 0.07,
-    rim: 0.55,
+    empty: 0x2a3552,
+    given: 0x8592b8,
+    user: 0x1d5852,
+    selected: 0xffb547,
+    peer: 0x2c4f92,
+    same: 0x6a52d8,
+    conflict: 0xb53a54,
+    glyphGiven: 0xf5f7ff,
+    glyphUser: 0x72f7e1,
+    glyphConflict: 0xff94a5,
+    note: 0xc6b8ff,
+    halo: 0xffb547,
+    edgeA: 0x6cb8ff,
+    edgeB: 0x9b7bff,
+    edge: 0.55,
+    bloom: 0.9,
+    plate: 0.06,
+    plateRim: 0.6,
     glow: 0.85,
-    env: 0.7,
-    shadow: 0.6,
-    fresnel: 0.55,
-    alpha: { empty: 0.26, given: 0.55, user: 0.38 },
-    axis: ["#f1b8c4", "#b8e6c8", "#b9d6f1"],
+    env: 0.75,
+    shadow: 0.7,
+    reflection: 0.28,
+    floorGlow: 0.55,
+    guides: 0.55,
+    fresnel: 0.5,
+    alpha: { empty: 0.22, given: 0.5, user: 0.36 },
+    axis: ["#ff7a8a", "#5ef2b4", "#6cb8ff"],
   },
   light: {
-    empty: 0xf2f4f8,
+    empty: 0xffffff,
     given: 0xffffff,
-    user: 0xe1f3e8,
-    selected: 0xffc58a,
-    peer: 0xbcd6f2,
-    same: 0xd9ccf7,
-    conflict: 0xf5b8c4,
-    glyphGiven: 0x1f2430,
-    glyphUser: 0x1d7a50,
-    glyphConflict: 0xc2334f,
-    note: 0x6a4fc0,
-    halo: 0xf08a24,
+    user: 0xdff4ee,
+    selected: 0xffc46b,
+    peer: 0xcadcfa,
+    same: 0xdcd2ff,
+    conflict: 0xffc2cc,
+    glyphGiven: 0x161922,
+    glyphUser: 0x0b7d6d,
+    glyphConflict: 0xc8243f,
+    note: 0x5b4bd6,
+    halo: 0xf08a00,
+    edgeA: 0xffffff,
+    edgeB: 0xffffff,
+    edge: 0.0,
+    bloom: 0.0,
     plate: 0.05,
-    rim: 0.7,
+    plateRim: 0.75,
     glow: 0.0,
-    env: 1.0,
-    shadow: 0.32,
+    env: 1.05,
+    shadow: 0.3,
+    reflection: 0.14,
+    floorGlow: 0.0,
+    guides: 0.7,
     fresnel: 0.35,
-    alpha: { empty: 0.24, given: 0.88, user: 0.6 },
-    axis: ["#d2576f", "#2f9d63", "#3f7fc4"],
+    alpha: { empty: 0.26, given: 0.9, user: 0.62 },
+    axis: ["#d9415b", "#13955f", "#2d6fd6"],
   },
 };
 
@@ -109,6 +123,10 @@ uniform float uNoteGrid;
 uniform vec3 uNoteColor;
 uniform float uFresnel;
 uniform vec2 uDepthCue;
+uniform float uBloom;
+uniform float uEdge;
+uniform vec3 uEdgeA;
+uniform vec3 uEdgeB;
 varying float vOpacity;
 varying float vGlyphAlpha;
 varying float vDigit;
@@ -157,6 +175,15 @@ float atlasGlyph(float d, vec2 uv, vec2 gx, vec2 gy) {
   return textureGrad(uAtlas, coord, gx, gy).a;
 }
 
+// A heavily blurred copy of the digit (a high mip level) as a soft glow.
+float glyphGlow(vec2 uv) {
+  if (vDigit < 0.5) return 0.0;
+  vec2 g = clamp((uv - 0.5) * 1.06 + 0.5, 0.03, 0.97);
+  float slot = vDigit - 1.0;
+  vec2 coord = vec2((mod(slot, 3.0) + g.x) / 3.0, (2.0 - floor(slot / 3.0) + g.y) / 3.0);
+  return textureLod(uAtlas, coord, 4.6).a;
+}
+
 float glyphMask(vec2 uv) {
   vec2 dx = dFdx(uv);
   vec2 dy = dFdy(uv);
@@ -179,7 +206,8 @@ float glyphMask(vec2 uv) {
 
 const FRAG_COLOR = /* glsl */ `
 float depthCue = mix(1.0, 0.35, smoothstep(uDepthCue.x, uDepthCue.y, vDepth));
-float gMask = glyphMask(faceUV(vLocal));
+vec2 gUV = faceUV(vLocal);
+float gMask = glyphMask(gUV);
 bool isNote = vDigit < 0.5;
 vec3 gColor = isNote ? uNoteColor : vGlyphColor;
 float gAlpha = vGlyphAlpha * mix(0.72, 1.0, depthCue) * frontFace(vLocal);
@@ -198,7 +226,9 @@ roughnessFactor = mix(roughnessFactor, 0.85, ink);
 const FRAG_EMISSIVE = /* glsl */ `
 float facing = clamp(abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0);
 totalEmissiveRadiance += gColor * ink * uGlyphGlow;
+totalEmissiveRadiance += gColor * glyphGlow(gUV) * gAlpha * uBloom * 0.55;
 float fres = pow(1.0 - facing, 2.5);
+totalEmissiveRadiance += mix(uEdgeA, uEdgeB, smoothstep(0.2, 0.9, fres)) * fres * uEdge * vOpacity;
 diffuseColor.a = clamp(diffuseColor.a + fres * uFresnel * vOpacity * (1.0 - ink), 0.0, 1.0);
 `;
 
@@ -260,6 +290,23 @@ function makeShadowTexture() {
   g.addColorStop(0, "rgba(0,0,0,1)");
   g.addColorStop(0.35, "rgba(0,0,0,0.55)");
   g.addColorStop(0.7, "rgba(0,0,0,0.15)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+function makeRingTexture() {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const c = size / 2;
+  const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+  g.addColorStop(0, "rgba(120,110,255,0.22)");
+  g.addColorStop(0.42, "rgba(110,150,255,0.10)");
+  g.addColorStop(0.62, "rgba(140,120,255,0.30)");
+  g.addColorStop(0.68, "rgba(120,170,255,0.12)");
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -333,10 +380,16 @@ export class CubeScene {
       uDepthCue: { value: new THREE.Vector2(10, 20) },
       uSlice: { value: new THREE.Vector4(0, 0, 0, 0) },
       uFrontFade: { value: 0.12 },
+      uBloom: { value: 0.9 },
+      uEdge: { value: 0.5 },
+      uEdgeA: { value: new THREE.Color() },
+      uEdgeB: { value: new THREE.Color() },
     };
 
     this.buildCells();
+    this.buildReflection();
     this.buildPlate();
+    this.buildGuides();
     this.buildHalo();
     this.buildFloor();
     this.allocState();
@@ -400,6 +453,109 @@ export class CubeScene {
     this.scene.add(mesh);
   }
 
+  /**
+   * Mirror image of the cells in the glossy floor. It shares every instanced
+   * buffer with the real cells, so it costs one cheap extra draw call.
+   */
+  buildReflection() {
+    const geo = new RoundedBoxGeometry(CELL, CELL, CELL, 1, 0.15);
+    const src = this.cellMesh.geometry.attributes;
+    geo.setAttribute("iOpacity", src.iOpacity);
+    geo.setAttribute("iGlyph", src.iGlyph);
+    geo.setAttribute("iDigit", src.iDigit);
+    this.reflectUniforms = { uFloorY: { value: -5 }, uStrength: { value: 0.25 }, uFade: { value: 2.5 } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: this.reflectUniforms,
+      vertexShader: /* glsl */ `
+        attribute float iOpacity;
+        attribute float iDigit;
+        attribute vec4 iGlyph;
+        uniform float uFloorY;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vBelow;
+        void main() {
+          vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+          vBelow = max(0.0, uFloorY - world.y);
+          vColor = mix(instanceColor, iGlyph.rgb, iDigit > 0.5 ? 0.35 * iGlyph.a : 0.0);
+          vAlpha = iOpacity;
+          gl_Position = projectionMatrix * viewMatrix * world;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uStrength;
+        uniform float uFade;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vBelow;
+        void main() {
+          float a = vAlpha * uStrength * exp(-vBelow / uFade);
+          gl_FragColor = vec4(vColor * 1.35 + 0.04, a);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, MAX_CELLS);
+    mesh.instanceMatrix = this.cellMesh.instanceMatrix;
+    mesh.instanceColor = this.cellMesh.instanceColor;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 0.3;
+    mesh.scale.y = -1;
+    mesh.count = 0;
+    this.reflection = mesh;
+    this.scene.add(mesh);
+  }
+
+  /** Three thin light rails through the selected cell, one per axis. */
+  buildGuides() {
+    this.guides = [0, 1, 2].map(() => {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0.5 }),
+      );
+      m.renderOrder = 0.8;
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    });
+  }
+
+  placeGuides() {
+    const v = this.view;
+    const sel = v?.selected ?? -1;
+    const show = sel >= 0 && !v.showcase && this.cube;
+    for (let a = 0; a < 3; a++) {
+      const g = this.guides[a];
+      g.visible = !!show;
+      if (!show) continue;
+      const o = sel * 3;
+      const spread = v.mode === "layer" && v.axis === a ? LAYER_SPREAD * 2 : 0;
+      const len = this.extent + spread + 0.6;
+      const t = 0.045;
+      g.scale.set(a === 0 ? len : t, a === 1 ? len : t, a === 2 ? len : t);
+      g.position.set(this.cur.pos[o], this.cur.pos[o + 1], this.cur.pos[o + 2]);
+      // Centre the rail on the cube along its own axis.
+      if (a === 0) g.position.x = 0;
+      if (a === 1) g.position.y = v.mode === "layer" && v.axis === 1 ? -this.layerShift(1) : 0;
+      if (a === 2) g.position.z = 0;
+      if (a === 0 && v.mode === "layer" && v.axis === 0) g.position.x = this.layerShift(0);
+      if (a === 2 && v.mode === "layer" && v.axis === 2) g.position.z = -this.layerShift(2);
+      g.material.color.set(this.theme.axis[a]);
+      g.material.opacity = this.theme.guides;
+      g.material.blending = this.theme.glow > 0 ? THREE.AdditiveBlending : THREE.NormalBlending;
+    }
+  }
+
+  /** How far the open-book spread moves the cube's centre along the active axis. */
+  layerShift(axis) {
+    const { n } = this.cube;
+    const layer = this.view.layer;
+    // Cells before the layer move back by the spread, cells after move forward.
+    const before = layer > 0 ? 1 : 0;
+    const after = layer < n - 1 ? 1 : 0;
+    return ((after - before) * LAYER_SPREAD) / 2;
+  }
+
   /** A faint glass plate with a coloured rim that marks the active slice. */
   buildPlate() {
     const group = new THREE.Group();
@@ -442,7 +598,7 @@ export class CubeScene {
     p.group.position.lerp(p.pos, k);
     p.group.visible = p.opacity > 0.002;
     p.face.material.opacity = p.opacity * this.theme.plate;
-    p.rim.material.opacity = p.opacity * this.theme.rim;
+    p.rim.material.opacity = p.opacity * this.theme.plateRim;
     return moved || before !== p.opacity;
   }
 
@@ -490,6 +646,15 @@ export class CubeScene {
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.renderOrder = 0;
     this.scene.add(this.floor);
+
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: makeRingTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.renderOrder = 0.1;
+    this.floorGlow = glow;
+    this.scene.add(glow);
   }
 
   allocState() {
@@ -551,6 +716,7 @@ export class CubeScene {
   setPuzzle(n, { instant = true } = {}) {
     this.cube = getCube(n);
     this.cellMesh.count = this.cube.size;
+    this.reflection.count = this.cube.size;
     this.uniforms.uNoteGrid.value = this.cube.b;
     this.computeBasePositions();
     const { size } = this.cube;
@@ -562,6 +728,7 @@ export class CubeScene {
       this.cur.pos.set(this.basePos.subarray(0, size * 3));
       this.cur.sc.fill(0.001);
       this.cur.op.fill(0);
+      this.introAt = performance.now();
     }
     this.placeFloor();
     this.needsRender = true;
@@ -577,9 +744,15 @@ export class CubeScene {
 
   placeFloor() {
     const e = this.extent;
-    const spread = this.view && this.view.mode === "layer" && this.view.axis === 1 ? LAYER_SPREAD : 0;
-    this.floor.position.y = -e / 2 - spread - 0.5;
+    const spread = this.view && this.view.mode === "layer" && !this.view.showcase && this.view.axis === 1 ? LAYER_SPREAD : 0;
+    const y = -e / 2 - spread - 0.55;
+    this.floor.position.y = y;
     this.floor.scale.setScalar(e * 2.1);
+    this.floorGlow.position.y = y + 0.01;
+    this.floorGlow.scale.setScalar(e * 2.6);
+    this.reflection.position.y = 2 * y;
+    this.reflectUniforms.uFloorY.value = y;
+    this.reflectUniforms.uFade.value = e * 0.28;
   }
 
   setTheme(name) {
@@ -588,6 +761,13 @@ export class CubeScene {
     this.uniforms.uGlyphGlow.value = t.glow;
     this.uniforms.uNoteColor.value.set(t.note);
     this.uniforms.uFresnel.value = t.fresnel;
+    this.uniforms.uBloom.value = t.bloom;
+    this.uniforms.uEdge.value = t.edge;
+    this.uniforms.uEdgeA.value.set(t.edgeA);
+    this.uniforms.uEdgeB.value.set(t.edgeB);
+    this.reflectUniforms.uStrength.value = t.reflection;
+    this.floorGlow.material.opacity = t.floorGlow;
+    this.floorGlow.visible = t.floorGlow > 0;
     this.scene.environmentIntensity = t.env;
     this.floor.material.opacity = t.shadow;
     this.haloUniforms.uColor.value.set(t.halo);
@@ -722,9 +902,7 @@ export class CubeScene {
   /* ---------------------------------------------------------------- */
 
   fitDistance(radius) {
-    const vfov = THREE.MathUtils.degToRad(this.camera.fov);
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
-    return radius / Math.sin(Math.min(vfov, hfov) / 2);
+    return radius / Math.sin(Math.atan(this.safeTan()));
   }
 
   layerCenter() {
@@ -738,8 +916,8 @@ export class CubeScene {
     this.resize();
     const r = (this.extent * Math.sqrt(3)) / 2;
     const showcase = this.view?.showcase;
-    const dist = this.fitDistance(r) * (showcase ? 1.12 : 1.02);
-    const target = new THREE.Vector3(0, showcase ? -r * 0.22 : 0, 0);
+    const dist = this.fitDistance(r) * (showcase ? 0.86 : 1.0);
+    const target = new THREE.Vector3(0, showcase ? -r * 0.05 : 0, 0);
     const dir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(62), THREE.MathUtils.degToRad(38));
     this.flyTo(target, target.clone().addScaledVector(dir, dist), animate);
   }
@@ -751,9 +929,7 @@ export class CubeScene {
     this.resize();
     const target = this.layerCenter();
     const half = this.extent / 2 + 0.3;
-    const vfov = THREE.MathUtils.degToRad(this.camera.fov);
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
-    const dist = (half / Math.tan(Math.min(vfov, hfov) / 2)) * (tilt ? 1.14 : 1.03) + CELL;
+    const dist = (half / this.safeTan()) * (tilt ? 1.12 : 1.03) + CELL;
     // The tilt leans toward the front-right-top corner, like the default view.
     const lean = [new THREE.Vector3(0, 0.36, 0.24), new THREE.Vector3(0, 0, 0.42), new THREE.Vector3(0.24, 0.36, 0)][v.axis];
     const dir = FACE_DIR[v.axis].clone();
@@ -900,23 +1076,48 @@ export class CubeScene {
   /* Frame loop                                                       */
   /* ---------------------------------------------------------------- */
 
+  /** The part of the canvas not covered by floating UI, in CSS pixels. */
+  setSafeArea(rect) {
+    this.safe = rect;
+    this.resize();
+  }
+
   resize() {
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const s = this.safe && this.safe.w > 0 && this.safe.h > 0 ? this.safe : { x: 0, y: 0, w, h };
+    // Shift the projection centre into the middle of the safe area by
+    // rendering a window of a larger virtual frame.
+    const cx = s.x + s.w / 2;
+    const cy = s.y + s.h / 2;
+    const fw = 2 * Math.max(cx, w - cx);
+    const fh = 2 * Math.max(cy, h - cy);
+    this.camera.aspect = fw / fh;
+    this.camera.setViewOffset(fw, fh, fw / 2 - cx, fh / 2 - cy, w, h);
+    this.view2d = { s, fh };
     const g = this.gizmo;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     g.canvas.width = 64 * dpr;
     g.canvas.height = 64 * dpr;
+    g.canvas.style.left = `${s.x + 4}px`;
+    g.canvas.style.top = `${s.y + s.h - 68}px`;
     g.dpr = dpr;
     this.needsRender = true;
   }
 
-  stepCells(dt) {
+  /** tan(half field of view) that fits the safe area, vertically and horizontally. */
+  safeTan() {
+    const { s, fh } = this.view2d;
+    const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+    return Math.min((t * s.h) / fh, (t * s.w) / fh);
+  }
+
+  stepCells(dt, now) {
     if (!this.cube) return false;
     const size = this.cube.size;
+    // Cells assemble from the centre outward when a cube appears.
+    const intro = this.reducedMotion ? Infinity : now - (this.introAt || 0);
     const k = this.reducedMotion ? 1 : 1 - Math.exp(-dt * 11);
     const { cur, tgt } = this;
     let moving = false;
@@ -928,6 +1129,10 @@ export class CubeScene {
       } else a[idx] = b[idx];
     };
     for (let i = 0; i < size; i++) {
+      if (intro < this.waveDelay[i] * 45) {
+        moving = true;
+        continue;
+      }
       ease(cur.op, tgt.op, i);
       ease(cur.sc, tgt.sc, i);
       ease(cur.ga, tgt.ga, i);
@@ -1003,6 +1208,7 @@ export class CubeScene {
     const r = this.extent * 0.75;
     this.uniforms.uDepthCue.value.set(Math.max(0.1, centerDist - r * 0.4), centerDist + r);
 
+    this.placeGuides();
     const sel = this.view?.selected ?? -1;
     this.halo.visible = sel >= 0 && !this.view.showcase;
     if (this.halo.visible) {
@@ -1027,7 +1233,7 @@ export class CubeScene {
     const c = size / 2;
     const len = size * 0.32;
     ctx.lineCap = "round";
-    ctx.font = `700 ${11 * dpr}px Manrope, system-ui, sans-serif`;
+    ctx.font = `700 ${11 * dpr}px Outfit, system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const p of axes) {
@@ -1058,7 +1264,7 @@ export class CubeScene {
     let dirty = this.needsRender;
     if (this.stepFlight(now)) dirty = true;
     if (this.controls.update(dt)) dirty = true;
-    if (this.stepCells(dt)) dirty = true;
+    if (this.stepCells(dt, now)) dirty = true;
     if (this.stepPlate(dt)) dirty = true;
     if (now < this.pulseUntil + 50) dirty = true;
     if (!dirty || !this.cube) return;

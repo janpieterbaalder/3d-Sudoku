@@ -1,6 +1,6 @@
 # Sudoku³ — 3D Sudoku
 
-Een echte driedimensionale sudoku in de browser: een kubus van glazen cellen in een 3D-scène, met opties (potloodcijfers), een donker en een licht thema, en bediening die is gemaakt voor de telefoon.
+Een echte driedimensionale sudoku in de browser: een kubus van glazen cellen in een full-screen 3D-scène met reflecterende vloer, lichtrails door de gekozen cel, opties (potloodcijfers), een donker en een licht thema, en bediening die is gemaakt voor de telefoon.
 
 ## De regel
 
@@ -27,7 +27,11 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-Een `file://`-URL werkt niet, omdat ES-modules en `puzzles.json` via HTTP geladen moeten worden. GitHub Pages werkt direct (Settings → Pages → Deploy from a branch).
+Een `file://`-URL werkt niet, omdat ES-modules en `puzzles.json` via HTTP geladen moeten worden.
+
+### Vercel
+
+`vercel.json` zet het project neer als statische site zonder build-stap. Importeer de repo één keer op vercel.com (Add New → Project → `3d-Sudoku`); daarna deployt elke push naar `main` automatisch.
 
 ### Bediening
 
@@ -63,7 +67,7 @@ js/scene.js             Three.js-scène: cellen, cijfers, camera, picking
 js/main.js              spelstatus, invoer, opslag, puzzelkeuze
 scripts/generate-puzzles.mjs   genereert puzzles.json
 vendor/three/           three.js r184 (MIT)
-fonts/                  Manrope (SIL OFL 1.1)
+fonts/                  Outfit en Unbounded (SIL OFL 1.1)
 ```
 
 Rendering:
@@ -71,6 +75,8 @@ Rendering:
 - Alle 729 cellen zijn één `InstancedMesh` (één draw call). Kleur, transparantie, cijfer en opties zijn per-instance attributen.
 - Cijfers en opties worden in de fragment-shader uit een glyph-atlas op het celvlak getekend dat het meest naar de camera wijst, zodat elk cijfer één keer leesbaar in beeld staat.
 - Doorzichtige cellen worden elk frame van achter naar voren gesorteerd.
+- De vloerreflectie is een gespiegelde tweede instanced mesh die alle buffers met de echte cellen deelt.
+- Het canvas vult het hele scherm; de camera gebruikt een view offset zodat de kubus gecentreerd staat in het deel dat niet door panelen bedekt is.
 - Er wordt alleen gerenderd als er iets beweegt (camera, animatie), wat batterij spaart.
 
 ### Puzzels opnieuw genereren
