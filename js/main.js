@@ -5,14 +5,19 @@ const STORAGE_KEY = "sudoku3d.state.v1";
 const TIER_LABEL = { easy: "Eenvoudig", medium: "Gemiddeld", hard: "Moeilijk", expert: "Expert" };
 const SIZE_LABEL = { 4: "Mini", 9: "Kubus" };
 const LINE_NAME = ["rij", "kolom", "pilaar"];
-const THEME_COLOR = { dark: "#0c0e12", light: "#eef0f4" };
+const THEME_COLOR = { dark: "#05070c", light: "#ece8e1" };
 
 const $ = (id) => document.getElementById(id);
 const els = {
   body: document.body,
   back: $("back"),
+  topbar: document.querySelector(".topbar"),
   brand: $("brand"),
-  title: $("title"),
+  gameTitle: $("game-title"),
+  gtName: $("gt-name"),
+  gtMeta: $("gt-meta"),
+  hud: $("hud"),
+  hero: $("hero"),
   reset: $("reset"),
   helpBtn: $("help-btn"),
   settingsBtn: $("settings-btn"),
@@ -116,19 +121,26 @@ async function init() {
   const resume = last && saved && !saved.done && hasProgress(last, saved);
   if (!resume) showPicker();
 
-  // The digit atlas is drawn with Manrope, so wait (briefly) for the font.
+  // The digit atlas is drawn with Outfit, so wait (briefly) for the font.
   await Promise.race([
-    document.fonts.load('650 64px "Manrope"').catch(() => {}),
+    document.fonts.load('600 64px "Outfit"').catch(() => {}),
     new Promise((r) => setTimeout(r, 1500)),
   ]);
   try {
-    scene = new CubeScene(els.stage, { onTap: onCellTap, fontFamily: '"Manrope", system-ui, sans-serif', reducedMotion });
+    scene = new CubeScene(els.stage, { onTap: onCellTap, fontFamily: '"Outfit", system-ui, sans-serif', reducedMotion });
     scene.spacing = settings.spacing;
     scene.setTheme(settings.theme);
+    updateSafeArea();
+    const ro = new ResizeObserver(() => updateSafeArea());
+    for (const el of [els.topbar, els.hud, els.hero, els.picker, els.controls]) ro.observe(el);
+    window.addEventListener("resize", updateSafeArea);
   } catch (err) {
     console.error(err);
     els.webglError.hidden = false;
   }
+
+  // Test hook: ?debug exposes the live state for automated checks.
+  if (new URLSearchParams(location.search).has("debug")) window.sudoku3d = { scene, get game() { return game; } };
 
   if (resume) openPuzzle(last.id);
   else if (ui.view === "picker") showcase();
@@ -145,9 +157,33 @@ function setView(view) {
   els.controls.hidden = view !== "game";
   els.back.hidden = view !== "game";
   els.brand.hidden = view === "game";
+  els.gameTitle.hidden = view !== "game";
   els.reset.hidden = view !== "game";
   els.solved.hidden = true;
   hideToast();
+  updateSafeArea();
+}
+
+/**
+ * The 3D stage fills the screen; the floating panels cover parts of it.
+ * The camera frames the cube inside whatever is left uncovered.
+ */
+function updateSafeArea() {
+  if (!scene) return;
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  let top = els.topbar.getBoundingClientRect().bottom;
+  let bottom = H;
+  let right = W;
+  const panel = ui.view === "game" ? els.controls : els.picker;
+  const r = panel.getBoundingClientRect();
+  const side = r.height > H * 0.6 && r.left > W * 0.3;
+  if (side) right = r.left;
+  else bottom = r.top;
+  if (ui.view === "game") top = Math.max(top, els.hud.getBoundingClientRect().bottom);
+  else if (!side) bottom = Math.min(bottom, els.hero.getBoundingClientRect().top);
+  const pad = 8;
+  scene.setSafeArea({ x: pad, y: top + pad, w: Math.max(80, right - 2 * pad), h: Math.max(80, bottom - top - 2 * pad) });
 }
 
 function showPicker() {
@@ -156,7 +192,6 @@ function showPicker() {
     persist();
   }
   setView("picker");
-  els.title.innerHTML = `<span class="title-main">Sudoku<sup>3</sup></span><span class="title-sub">in drie dimensies</span>`;
   renderPicker();
   showcase();
 }
@@ -166,13 +201,13 @@ function showcase() {
   if (!scene) return;
   const sample = puzzles.find((p) => p.size === ui.size);
   const cube = getCube(ui.size);
+  // A solved cube: clues in white, the rest in the "filled in" colour.
   const given = digits(sample.puzzle);
   const solution = digits(sample.solution);
-  const values = ui.size === 4 ? solution : given;
   scene.setPuzzle(ui.size);
   scene.update({
-    values,
-    given: ui.size === 4 ? solution : given,
+    values: solution,
+    given,
     notes: new Uint16Array(cube.size),
     conflicts: new Set(),
     selected: null,
@@ -247,7 +282,8 @@ function openPuzzle(id) {
   persist();
 
   setView("game");
-  els.title.innerHTML = `<span class="title-main">${SIZE_LABEL[p.size]} ${puzzleNumber(p)}</span><span class="title-sub">${p.size} × ${p.size} × ${p.size}</span>`;
+  els.gtName.textContent = `${SIZE_LABEL[p.size]} ${puzzleNumber(p)}`;
+  els.gtMeta.textContent = `${p.size} × ${p.size} × ${p.size}`;
   els.metaDiff.textContent = TIER_LABEL[p.difficulty];
   els.metaDiff.dataset.tier = p.difficulty;
   buildPad();
