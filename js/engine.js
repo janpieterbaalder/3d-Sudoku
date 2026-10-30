@@ -12,6 +12,11 @@
 // digits would be needed. The ZW plane is the one left without boxes, which
 // keeps every W-slice a complete 3D sudoku.
 //
+// 4D (9×9×9×9, the hypercube): the full rule holds — lines along all four
+// axes and 3×3 boxes in all six plane orientations, so every 2D slice is a
+// sudoku. It exists because GF(3)² has four pairwise independent directions
+// (the ternary tetracode), one for each axis.
+//
 // Cell index: i = x + N·y + N²·z (+ N³·w).
 
 const gridCache = new Map();
@@ -22,6 +27,10 @@ export function getCube(n) {
 
 export function getTesseract(n = 4) {
   return getGrid(n, 4, [[2, 3]]);
+}
+
+export function getHypercube(n = 9) {
+  return getGrid(n, 4, []);
 }
 
 function getGrid(n, d, missing) {
@@ -243,6 +252,7 @@ export function countSolutions(cube, values, limit = 2) {
  * permutation and a digit relabelling.
  */
 export function randomSolution(cube, rng = Math.random) {
+  if (cube.d === 4 && cube.n === 9) return hyperSolution(cube, rng);
   if (cube.d !== 3) {
     // The 4×4×4×4 tesseract is small enough for randomised backtracking.
     const found = [];
@@ -289,6 +299,49 @@ export function randomSolution(cube, rng = Math.random) {
         out[index(p[0], p[1], p[2])] = digits[(v0 % b) * b + (v1 % b)];
       }
     }
+  }
+  return out;
+}
+
+/**
+ * A random solved 9×9×9×9 hypercube: the same affine idea as the 3D cube,
+ * now with four row directions that must be pairwise independent in GF(3)²
+ * (all six planes have boxes), then scrambled by band/row shuffles per axis,
+ * an axis permutation and a digit relabelling.
+ */
+function hyperSolution(cube, rng) {
+  const { n, b, d, size, coords } = cube;
+  const rand = (k) => Math.floor(rng() * k);
+  const indep = (p, q) => (p[0] * q[1] - p[1] * q[0]) % b !== 0;
+  let rows;
+  let bands;
+  do {
+    rows = Array.from({ length: d }, () => [rand(b), rand(b)]);
+    bands = Array.from({ length: d }, () => [rand(b), rand(b)]);
+  } while (
+    !rows.every((r, a) => indep(r, bands[a])) ||
+    !cube.planes.every(([u, v]) => indep(rows[u], rows[v]))
+  );
+  const lineOrder = () => {
+    const order = shuffle([...Array(b).keys()], rng);
+    return order.flatMap((band) => shuffle([...Array(b).keys()], rng).map((r) => band * b + r));
+  };
+  const orders = Array.from({ length: d }, lineOrder);
+  const axes = shuffle([...Array(d).keys()], rng);
+  const digits = shuffle([...Array(n).keys()].map((k) => k + 1), rng);
+  const out = new Array(size);
+  for (let i = 0; i < size; i++) {
+    const c = coords[i];
+    let v0 = 0;
+    let v1 = 0;
+    for (let a = 0; a < d; a++) {
+      const k = orders[a][c[axes[a]]];
+      const band = (k / b) | 0;
+      const row = k % b;
+      v0 += bands[a][0] * band + rows[a][0] * row;
+      v1 += bands[a][1] * band + rows[a][1] * row;
+    }
+    out[i] = digits[(v0 % b) * b + (v1 % b)];
   }
   return out;
 }
@@ -495,13 +548,37 @@ function shuffle(a, rng) {
 export function generatePuzzle(cube, { level, minClues, rng = Math.random }) {
   const solution = randomSolution(cube, rng);
   const puzzle = solution.slice();
+  const order = shuffle([...Array(cube.size).keys()], rng);
   let clues = cube.size;
-  for (const i of shuffle([...Array(cube.size).keys()], rng)) {
-    if (clues <= minClues) break;
-    const keep = puzzle[i];
-    puzzle[i] = 0;
-    if (gradePuzzle(cube, puzzle, level)) clues--;
-    else puzzle[i] = keep;
+  if (cube.size > 1000) {
+    // Thousands of cells: remove clues in batches, halving a batch whenever
+    // it breaks solvability, so a few hundred gradings dig the whole grid.
+    let batch = Math.floor(cube.size / 16);
+    let pos = 0;
+    let streak = 0;
+    while (pos < order.length && clues > minClues) {
+      const take = Math.min(batch, order.length - pos, clues - minClues);
+      const group = order.slice(pos, pos + take);
+      for (const i of group) puzzle[i] = 0;
+      if (gradePuzzle(cube, puzzle, level)) {
+        clues -= take;
+        pos += take;
+        if (++streak >= 3) batch = Math.min(batch * 2, Math.floor(cube.size / 16));
+        continue;
+      }
+      for (const i of group) puzzle[i] = solution[i];
+      streak = 0;
+      if (take === 1) pos++;
+      else batch = Math.max(1, take >> 1);
+    }
+  } else {
+    for (const i of order) {
+      if (clues <= minClues) break;
+      const keep = puzzle[i];
+      puzzle[i] = 0;
+      if (gradePuzzle(cube, puzzle, level)) clues--;
+      else puzzle[i] = keep;
+    }
   }
   return { puzzle, solution, clues, level: gradePuzzle(cube, puzzle, 3) };
 }

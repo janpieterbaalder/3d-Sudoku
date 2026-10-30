@@ -1,4 +1,4 @@
-import { getCube, getTesseract, computeCandidates, findConflicts, nextStep } from "./engine.js";
+import { getCube, getTesseract, getHypercube, computeCandidates, findConflicts, nextStep } from "./engine.js";
 import { CubeScene, THEMES, slotMap } from "./scene.js";
 
 const STORAGE_KEY = "sudoku3d.state.v1";
@@ -8,13 +8,16 @@ const GROUPS = {
   4: { label: "Mini", size: 4, dims: 3 },
   9: { label: "Kubus", size: 9, dims: 3 },
   t: { label: "Tesseract", size: 4, dims: 4 },
+  h: { label: "Hyperkubus", size: 9, dims: 4 },
 };
 const groupOf = (p) => p.id.split("-")[0];
 const HERO = {
-  3: ["Echte 3D-sudoku", "Elke snede van de kubus is een sudoku. In alle drie de richtingen."],
-  4: ["Sudoku in vier dimensies", "Vier kubussen, verbonden door een vierde richting: W."],
+  4: ["Echte 3D-sudoku", "Elke snede van de kubus is een sudoku. In alle drie de richtingen."],
+  9: ["Echte 3D-sudoku", "Elke snede van de kubus is een sudoku. In alle drie de richtingen."],
+  t: ["Sudoku in vier dimensies", "Vier kubussen, verbonden door een vierde richting: W."],
+  h: ["De volledige 4D-regel", "6561 cellen. Elke snede, in alle zes de vlakken, is een sudoku."],
 };
-const gridOf = (g) => (g.dims === 4 ? getTesseract(g.size) : getCube(g.size));
+const gridOf = (g) => (g.dims === 3 ? getCube(g.size) : g.size === 9 ? getHypercube(9) : getTesseract(g.size));
 const LINE_NAME = ["rij", "kolom", "pilaar", "W-lijn"];
 const AXES = "XYZW";
 // Mode buttons keep their ids; in the tesseract "Kubus" shows everything and "Laag" one cube.
@@ -217,7 +220,7 @@ function showPicker() {
 function showcase() {
   if (!scene) return;
   const g = GROUPS[ui.group];
-  const [kicker, line] = HERO[g.dims];
+  const [kicker, line] = HERO[ui.group];
   els.hero.querySelector(".hero-kicker").textContent = kicker;
   els.hero.querySelector(".hero-line").textContent = line;
   const sample = puzzles.find((p) => groupOf(p) === ui.group);
@@ -497,7 +500,8 @@ function eraseCell() {
 
 function pushHistory() {
   game.history.push({ values: game.values.slice(), notes: game.notes.slice() });
-  if (game.history.length > 300) game.history.shift();
+  // Snapshots of the 6561-cell hypercube are large: keep fewer of them.
+  if (game.history.length > (game.cube.size > 1000 ? 80 : 300)) game.history.shift();
 }
 
 function undo() {
