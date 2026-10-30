@@ -16,8 +16,9 @@ Daardoor is elke laag die je uit de kubus snijdt, horizontaal of verticaal, zelf
 | Mini 4 × 4 × 4 | 64 | 1–4 | 2 × 2 |
 | Kubus 9 × 9 × 9 | 729 | 1–9 | 3 × 3 |
 | Tesseract 4 × 4 × 4 × 4 | 256 | 1–4 | 2 × 2 |
+| Hyperkubus 9 × 9 × 9 × 9 | 6561 | 1–9 | 3 × 3 |
 
-Er zijn 90 puzzels (30 per formaat). Elke puzzel heeft één oplossing en is op te lossen met logische technieken; raden is niet nodig.
+Er zijn 106 puzzels: 30 per 3D-formaat, 30 voor de Tesseract en 16 voor de Hyperkubus. Elke puzzel heeft één oplossing en is op te lossen met logische technieken; raden is niet nodig.
 
 ## Tesseract: vier dimensies
 
@@ -27,7 +28,15 @@ De Tesseract voegt een vierde richting **W** toe. Je ziet hem als vier kubussen;
 - Elk 2 × 2-blok bevat 1–4, in vijf van de zes vlakrichtingen: XY, XZ, YZ, XW en YW. Elke kubus is daardoor zelf een complete 3D-Mini.
 - Alleen het ZW-vlak heeft geen blokken.
 
-Dat laatste is geen keuze maar wiskunde. Met blokken in alle zes vlakrichtingen moeten de 16 cellen van één 2 × 2 × 2 × 2-blok verschillen zodra ze in één of twee coördinaten verschillen. Een cijfer mag dan alleen terugkomen op afstand 3 of meer, en een binaire code van lengte 4 met afstand 3 heeft hooguit 2 woorden. Er zijn dus minstens 8 cijfers nodig, en er zijn er 4. Uitputtend zoeken bevestigt dat: met zes vlakken bestaat geen enkele 4⁴-oplossing, met vijf wel. Bij 9 × 9 × 9 × 9 kan het wél met alle zes vlakken (de ternaire tetracode maakt het mogelijk).
+Dat laatste is geen keuze maar wiskunde. Met blokken in alle zes vlakrichtingen moeten de 16 cellen van één 2 × 2 × 2 × 2-blok verschillen zodra ze in één of twee coördinaten verschillen. Een cijfer mag dan alleen terugkomen op afstand 3 of meer, en een binaire code van lengte 4 met afstand 3 heeft hooguit 2 woorden. Er zijn dus minstens 8 cijfers nodig, en er zijn er 4. Uitputtend zoeken bevestigt dat: met zes vlakken bestaat geen enkele 4⁴-oplossing, met vijf wel. Bij 9 × 9 × 9 × 9 kan het wél met alle zes vlakken; dat is de Hyperkubus hieronder.
+
+## Hyperkubus: de volledige 4D-regel
+
+De Hyperkubus (9 × 9 × 9 × 9 = 6561 cellen, cijfers 1–9) heeft lijnen in alle vier de richtingen én 3 × 3-blokken in alle zes de vlakrichtingen. Elke 2D-snede in elke richting is dus een gewone sudoku, en elke cel hoort bij tien groepen (vier lijnen, zes blokken) met samen 56 buren. Het kan omdat GF(3)² vier onderling onafhankelijke richtingen heeft (de ternaire tetracode), één per as; de generator bouwt daarmee een geldige oplossing en husselt die met alle symmetrieën. Een minimale puzzel heeft maar zo'n 80 gegeven cijfers.
+
+Je ziet de Hyperkubus als negen kubussen van 9 × 9 × 9 in een 3 × 3-raster; de bediening is gelijk aan die van de Tesseract. Voor de prestaties gebruiken de 6561 cellen een eenvoudiger geometrie en staat de vloerreflectie uit.
+
+## 4D-draai
 
 Met X / Y / Z / W draai je de tesseract in de vierde dimensie: een echte rotatie van 90° in het XW-, YW- of ZW-vlak, geanimeerd. De gekozen as wordt over de vier kubussen verdeeld en W neemt zijn plaats in. Zo bekijk je dezelfde puzzel in andere doorsneden. De vier kubussen staan in een 2 × 2-raster, op brede schermen naast elkaar. Door de gekozen cel lopen vier lichtrails, één per as; de W-rail verbindt dezelfde plek in alle vier de kubussen.
 
@@ -75,7 +84,7 @@ Voortgang, tijd, thema en instellingen worden lokaal in de browser bewaard (`loc
 ```
 index.html              opmaak, import map voor three.js
 css/styles.css          thema's (donker/licht) en mobiel-first layout
-js/engine.js            geometrie in 3D en 4D, solver, logische grader, generator
+js/engine.js            geometrie in 3D en 4D (n dimensies), solver, logische grader, generator
 js/scene.js             Three.js-scène: cellen, cijfers, 4D-rotatie en -projectie, camera, picking
 js/main.js              spelstatus, invoer, opslag, puzzelkeuze
 scripts/generate-puzzles.mjs   genereert puzzles.json

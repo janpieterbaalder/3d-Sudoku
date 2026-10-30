@@ -8,7 +8,7 @@ import { RoundedBoxGeometry } from "three/addons/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/addons/RoomEnvironment.js";
 import { getCube, getTesseract } from "./engine.js";
 
-const MAX_CELLS = 729;
+const MAX_CELLS = 6561;
 const CELL = 1;
 const LAYER_SPREAD = 1.25;
 
@@ -363,7 +363,7 @@ export class CubeScene {
     rim.position.set(-8, 4, -10);
     scene.add(rim);
 
-    this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 400);
+    this.camera = new THREE.PerspectiveCamera(32, 1, 0.2, 6000);
     this.camera.position.set(10, 8, 14);
 
     const controls = new OrbitControls(this.camera, renderer.domElement);
@@ -424,7 +424,9 @@ export class CubeScene {
 
   buildCells() {
     // 3 segments per rounded edge: ~600 triangles per cell, ~430k for 9³.
+    // The 6561-cell hypercube switches to 1 segment (~110 triangles per cell).
     const geo = new RoundedBoxGeometry(CELL, CELL, CELL, 3, 0.15);
+    const lowGeo = new RoundedBoxGeometry(CELL, CELL, CELL, 1, 0.15);
     const attr = (itemSize) => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CELLS * itemSize), itemSize);
       a.setUsage(THREE.DynamicDrawUsage);
@@ -435,6 +437,8 @@ export class CubeScene {
     geo.setAttribute("iNotes", attr(1));
     geo.setAttribute("iGlyph", attr(4));
     geo.setAttribute("iKeep", attr(1));
+    for (const name of ["iOpacity", "iDigit", "iNotes", "iGlyph", "iKeep"]) lowGeo.setAttribute(name, geo.attributes[name]);
+    this.cellGeometries = { high: geo, low: lowGeo };
 
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -790,13 +794,16 @@ export class CubeScene {
   slotPos(h, out) {
     const { n } = this.cube;
     const E = this.extent;
-    const step = E * (this.layout4 === "row" ? 1.5 : 1.8);
+    const row = this.layout4 === "row" && n <= 4;
+    const step = E * (row ? 1.5 : n > 4 ? 1.35 : 1.8);
     const t = h + (n - 1) / 2;
     const k0 = Math.min(n - 2, Math.max(0, Math.floor(t)));
     const f = t - k0;
+    // n cubes in a √n × √n grid (2×2 or 3×3), reading order; or one row.
+    const g = Math.ceil(Math.sqrt(n));
     const at = (k, v) => {
-      if (this.layout4 === "row") return v.set((k - (n - 1) / 2) * step, 0, 0);
-      return v.set((k % 2 ? 0.5 : -0.5) * step, (k < 2 ? 0.5 : -0.5) * step, 0);
+      if (row) return v.set((k - (n - 1) / 2) * step, 0, 0);
+      return v.set(((k % g) - (g - 1) / 2) * step, ((g - 1) / 2 - Math.floor(k / g)) * step, 0);
     };
     const a = at(k0, new THREE.Vector3());
     const b = at(k0 + 1, new THREE.Vector3());
@@ -884,6 +891,10 @@ export class CubeScene {
     this.snapRotation = true;
     this.cellMesh.count = this.cube.size;
     this.reflection.count = this.cube.size;
+    const big = this.cube.size > 729;
+    this.cellMesh.geometry = big ? this.cellGeometries.low : this.cellGeometries.high;
+    // Thousands of mirrored cells add little but cost a lot on phones.
+    this.reflection.visible = !big;
     this.uniforms.uNoteGrid.value = this.cube.b;
     this.computeBasePositions();
     const { size } = this.cube;
@@ -891,6 +902,10 @@ export class CubeScene {
       const p = this.basePos;
       this.waveDelay[i] = Math.hypot(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
     }
+    // Normalise so the assembly takes about half a second whatever the size.
+    let maxWave = 1e-6;
+    for (let i = 0; i < size; i++) maxWave = Math.max(maxWave, this.waveDelay[i]);
+    for (let i = 0; i < size; i++) this.waveDelay[i] *= 520 / maxWave;
     if (instant) {
       this.cur.pos.set(this.basePos.subarray(0, size * 3));
       this.cur.sc.fill(0.001);
@@ -1351,7 +1366,7 @@ export class CubeScene {
       } else a[idx] = b[idx];
     };
     for (let i = 0; i < size; i++) {
-      if (intro < this.waveDelay[i] * 45) {
+      if (intro < this.waveDelay[i]) {
         moving = true;
         continue;
       }
@@ -1401,7 +1416,7 @@ export class CubeScene {
       const o = i * 3;
       let s = cur.sc[i];
       if (wave !== null) {
-        const x = wave * 6 - this.waveDelay[i] * 0.35;
+        const x = wave * 6 - this.waveDelay[i] * 0.012;
         if (x > 0 && x < Math.PI) s *= 1 + 0.22 * Math.sin(x);
       }
       const mo = k * 16;
