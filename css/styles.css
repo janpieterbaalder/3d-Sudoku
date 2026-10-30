@@ -728,11 +728,29 @@ body.view-game .picker-only {
   gap: 8px;
 }
 
+/* One row that always fits: the two segments share the free width in
+   proportion to their buttons (3 + 3, or 3 + 4 with the tesseract's W),
+   the layer stepper keeps its own size. */
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
+}
+
+.dock.dims-4 .toolbar {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) auto;
+}
+
+.toolbar .seg {
+  display: flex;
+  min-width: 0;
+}
+
+.toolbar .seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
 }
 
 .seg,
@@ -775,8 +793,6 @@ body.view-game .picker-only {
 }
 
 .axis-seg button {
-  min-width: 34px;
-  padding: 0 4px;
   font-family: "Unbounded", "Outfit", sans-serif;
   font-size: 13px;
   font-weight: 700;
@@ -793,7 +809,7 @@ body.view-game .picker-only {
 }
 
 .stepper button {
-  width: 34px;
+  width: 32px;
   height: 36px;
   border-radius: 11px;
   display: grid;
@@ -806,7 +822,7 @@ body.view-game .picker-only {
 }
 
 .layer-label {
-  min-width: 40px;
+  min-width: 36px;
   text-align: center;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -1100,10 +1116,9 @@ kbd {
 /* ---------- Narrow phones ---------- */
 
 @media (max-width: 360px) {
-  .seg button { min-width: 33px; padding: 0 7px; }
-  .axis-seg button { min-width: 30px; }
-  .stepper button { width: 30px; }
-  .layer-label { min-width: 34px; }
+  .toolbar { gap: 4px; }
+  .stepper button { width: 28px; }
+  .layer-label { min-width: 30px; }
   .num { height: 48px; font-size: 22px; }
   .pad { gap: 4px; }
 }
@@ -1151,18 +1166,23 @@ kbd {
     scrollbar-width: none;
   }
 
-  .toolbar {
-    flex-wrap: wrap;
-    justify-content: center;
+  .dock .toolbar,
+  .dock.dims-4 .toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "mode mode" "axis step";
     gap: 8px;
   }
 
   #mode-seg {
-    width: 100%;
+    grid-area: mode;
   }
 
-  #mode-seg button {
-    flex: 1;
+  #axis-seg {
+    grid-area: axis;
+  }
+
+  .toolbar .stepper {
+    grid-area: step;
   }
 
   #mode-seg button span {

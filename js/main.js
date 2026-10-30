@@ -379,6 +379,7 @@ function refresh() {
 
 /** Relabel the shared toolbar for a cube (3D) or a tesseract (4D). */
 function configureToolbar() {
+  els.controls.classList.toggle("dims-4", game.dims === 4);
   const labels = MODE_LABELS[game.dims];
   for (const b of els.modeSeg.querySelectorAll("button")) {
     const [text, aria] = labels[b.dataset.mode];
