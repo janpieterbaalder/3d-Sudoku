@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/OrbitControls.js";
 import { RoundedBoxGeometry } from "three/addons/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/addons/RoomEnvironment.js";
-import { getCube } from "./engine.js";
+import { getCube, getTesseract } from "./engine.js";
 
 const MAX_CELLS = 729;
 const CELL = 1;
@@ -17,6 +17,17 @@ const LAYER_SPREAD = 1.25;
 export const AXIS_DIR = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, -1)];
 // Where the camera sits to look straight at a slice of each axis.
 const FACE_DIR = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+const ROT4_MS = 720;
+
+/**
+ * Tesseract view: which puzzle axis fills each of the three visible slots
+ * (world X, down, depth) when `hidden` is the axis spread over the cubes.
+ * Hiding X, Y or Z is a 90° rotation in that axis' plane with W, so W takes
+ * the freed slot with its direction reversed.
+ */
+export function slotMap(hidden) {
+  return [0, 1, 2].map((slot) => (slot === hidden ? { axis: 3, sign: -1 } : { axis: slot, sign: 1 }));
+}
 
 export const THEMES = {
   dark: {
@@ -46,7 +57,7 @@ export const THEMES = {
     guides: 0.55,
     fresnel: 0.5,
     alpha: { empty: 0.22, given: 0.5, user: 0.36 },
-    axis: ["#ff7a8a", "#5ef2b4", "#6cb8ff"],
+    axis: ["#ff7a8a", "#5ef2b4", "#6cb8ff", "#c99bff"],
   },
   light: {
     empty: 0xffffff,
@@ -75,7 +86,7 @@ export const THEMES = {
     guides: 0.7,
     fresnel: 0.35,
     alpha: { empty: 0.26, given: 0.9, user: 0.62 },
-    axis: ["#d9415b", "#13955f", "#2d6fd6"],
+    axis: ["#d9415b", "#13955f", "#2d6fd6", "#8a4fd6"],
   },
 };
 
@@ -389,6 +400,7 @@ export class CubeScene {
     this.buildCells();
     this.buildReflection();
     this.buildPlate();
+    this.buildFrame();
     this.buildGuides();
     this.buildHalo();
     this.buildFloor();
@@ -506,9 +518,9 @@ export class CubeScene {
     this.scene.add(mesh);
   }
 
-  /** Three thin light rails through the selected cell, one per axis. */
+  /** Thin light rails through the selected cell, one per axis, cell to cell. */
   buildGuides() {
-    this.guides = [0, 1, 2].map(() => {
+    this.rails = Array.from({ length: 32 }, () => {
       const m = new THREE.Mesh(
         new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0.5 }),
@@ -523,37 +535,44 @@ export class CubeScene {
   placeGuides() {
     const v = this.view;
     const sel = v?.selected ?? -1;
-    const show = sel >= 0 && !v.showcase && this.cube;
-    for (let a = 0; a < 3; a++) {
-      const g = this.guides[a];
-      g.visible = !!show;
-      if (!show) continue;
-      const o = sel * 3;
-      const spread = v.mode === "layer" && v.axis === a ? LAYER_SPREAD * 2 : 0;
-      const len = this.extent + spread + 0.6;
-      const t = 0.045;
-      g.scale.set(a === 0 ? len : t, a === 1 ? len : t, a === 2 ? len : t);
-      g.position.set(this.cur.pos[o], this.cur.pos[o + 1], this.cur.pos[o + 2]);
-      // Centre the rail on the cube along its own axis.
-      if (a === 0) g.position.x = 0;
-      if (a === 1) g.position.y = v.mode === "layer" && v.axis === 1 ? -this.layerShift(1) : 0;
-      if (a === 2) g.position.z = 0;
-      if (a === 0 && v.mode === "layer" && v.axis === 0) g.position.x = this.layerShift(0);
-      if (a === 2 && v.mode === "layer" && v.axis === 2) g.position.z = -this.layerShift(2);
-      g.material.color.set(this.theme.axis[a]);
-      g.material.opacity = this.theme.guides;
-      g.material.blending = this.theme.glow > 0 ? THREE.AdditiveBlending : THREE.NormalBlending;
+    for (const r of this.rails) r.visible = false;
+    if (sel < 0 || v.showcase || !this.cube) return;
+    const { coords, n, d, index } = this.cube;
+    const c = coords[sel];
+    const p = this.cur.pos;
+    const a3 = new THREE.Vector3();
+    const b3 = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const Z = new THREE.Vector3(0, 0, 1);
+    let k = 0;
+    for (let a = 0; a < d; a++) {
+      const pts = [];
+      for (let t = 0; t < n; t++) {
+        const q = c.slice();
+        q[a] = t;
+        const i = index(...q) * 3;
+        pts.push(new THREE.Vector3(p[i], p[i + 1], p[i + 2]));
+      }
+      for (let sgm = 0; sgm < n - 1; sgm++) {
+        const m = this.rails[k++];
+        a3.copy(pts[sgm]);
+        b3.copy(pts[sgm + 1]);
+        dir.subVectors(b3, a3);
+        const len = dir.length();
+        if (len < 1e-4) continue;
+        dir.divideScalar(len);
+        // Let the rail run a little past the first and last cell.
+        if (sgm === 0) a3.addScaledVector(dir, -0.45);
+        if (sgm === n - 2) b3.addScaledVector(dir, 0.45);
+        m.position.addVectors(a3, b3).multiplyScalar(0.5);
+        m.quaternion.setFromUnitVectors(Z, dir);
+        m.scale.set(0.045, 0.045, a3.distanceTo(b3));
+        m.material.color.set(this.theme.axis[a]);
+        m.material.opacity = this.theme.guides;
+        m.material.blending = this.theme.glow > 0 ? THREE.AdditiveBlending : THREE.NormalBlending;
+        m.visible = true;
+      }
     }
-  }
-
-  /** How far the open-book spread moves the cube's centre along the active axis. */
-  layerShift(axis) {
-    const { n } = this.cube;
-    const layer = this.view.layer;
-    // Cells before the layer move back by the spread, cells after move forward.
-    const before = layer > 0 ? 1 : 0;
-    const after = layer < n - 1 ? 1 : 0;
-    return ((after - before) * LAYER_SPREAD) / 2;
   }
 
   /** A faint glass plate with a coloured rim that marks the active slice. */
@@ -588,8 +607,7 @@ export class CubeScene {
     this.scene.add(group);
   }
 
-  stepPlate(dt) {
-    const p = this.plate;
+  stepPlate(dt, p = this.plate) {
     const k = this.reducedMotion ? 1 : 1 - Math.exp(-dt * 10);
     const before = p.opacity;
     p.opacity += (p.target - p.opacity) * k;
@@ -605,7 +623,7 @@ export class CubeScene {
   placePlate() {
     const v = this.view;
     const p = this.plate;
-    const on = v && v.mode === "layer" && !v.showcase;
+    const on = v && this.dims === 3 && v.mode === "layer" && !v.showcase;
     p.target = on ? 1 : 0;
     if (!on) return;
     const size = this.extent + 0.45;
@@ -617,6 +635,40 @@ export class CubeScene {
     p.pos.copy(this.layerCenter());
     if (p.axis !== v.axis || p.opacity < 0.01) p.group.position.copy(p.pos);
     p.axis = v.axis;
+  }
+
+  /** Glass outline around the active cube of the tesseract. */
+  buildFrame() {
+    const group = new THREE.Group();
+    const fill = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0, side: THREE.BackSide }),
+    );
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+      new THREE.LineBasicMaterial({ transparent: true, depthWrite: false, opacity: 0 }),
+    );
+    group.add(fill, edges);
+    group.renderOrder = 0.5;
+    fill.renderOrder = 0.5;
+    edges.renderOrder = 0.5;
+    group.visible = false;
+    this.frameBox = { group, face: fill, rim: edges, opacity: 0, target: 0, pos: new THREE.Vector3(), axis: 3 };
+    this.scene.add(group);
+  }
+
+  placeFrame() {
+    const v = this.view;
+    const f = this.frameBox;
+    const on = v && this.dims === 4 && v.mode === "layer" && !v.showcase;
+    f.target = on ? 1 : 0;
+    if (!on) return;
+    const color = new THREE.Color(this.theme.axis[v.axis]);
+    f.face.material.color.copy(color);
+    f.rim.material.color.copy(color);
+    f.group.scale.setScalar(this.extent + 0.5);
+    f.pos.copy(this.layerCenter());
+    if (f.opacity < 0.01) f.group.position.copy(f.pos);
   }
 
   buildHalo() {
@@ -705,6 +757,14 @@ export class CubeScene {
 
   computeBasePositions() {
     const { size, coords } = this.cube;
+    if (this.dims === 4) {
+      const v = new THREE.Vector3();
+      for (let i = 0; i < size; i++) {
+        this.pos4(i, this.rotState(), v);
+        v.toArray(this.basePos, i * 3);
+      }
+      return;
+    }
     for (let i = 0; i < size; i++) {
       const [x, y, z] = coords[i];
       this.basePos[i * 3] = this.offset(x);
@@ -713,8 +773,115 @@ export class CubeScene {
     }
   }
 
-  setPuzzle(n, { instant = true } = {}) {
-    this.cube = getCube(n);
+  /* ---------------------------------------------------------------- */
+  /* Tesseract: 4D rotation and projection                            */
+  /* ---------------------------------------------------------------- */
+
+  /** World offset for a centred, possibly fractional, cell coordinate. */
+  offF(u) {
+    const { n } = this.cube;
+    const k = u + (n - 1) / 2;
+    const k0 = Math.min(n - 2, Math.max(0, Math.floor(k)));
+    const f = k - k0;
+    return this.offset(k0) * (1 - f) + this.offset(k0 + 1) * f;
+  }
+
+  /** Where the cube for (fractional) hidden coordinate h sits: a 2×2 grid, or a row on wide screens. */
+  slotPos(h, out) {
+    const { n } = this.cube;
+    const E = this.extent;
+    const step = E * (this.layout4 === "row" ? 1.5 : 1.8);
+    const t = h + (n - 1) / 2;
+    const k0 = Math.min(n - 2, Math.max(0, Math.floor(t)));
+    const f = t - k0;
+    const at = (k, v) => {
+      if (this.layout4 === "row") return v.set((k - (n - 1) / 2) * step, 0, 0);
+      return v.set((k % 2 ? 0.5 : -0.5) * step, (k < 2 ? 0.5 : -0.5) * step, 0);
+    };
+    const a = at(k0, new THREE.Vector3());
+    const b = at(k0 + 1, new THREE.Vector3());
+    return out.copy(a).lerp(b, f);
+  }
+
+  /**
+   * The current 4D orientation: rotating axis `axis` (0–2) toward W by
+   * `theta`. theta = 0 means W is the hidden axis; theta = 90° means `axis` is.
+   */
+  rotState() {
+    const r = this.rot4;
+    if (r) {
+      const step = r.steps[r.i];
+      const p = easeInOut(Math.min(1, (performance.now() - r.t0) / ROT4_MS));
+      return { axis: step.axis, theta: (step.dir > 0 ? p : 1 - p) * (Math.PI / 2) };
+    }
+    return this.hidden4 === 3 ? { axis: 0, theta: 0 } : { axis: this.hidden4, theta: Math.PI / 2 };
+  }
+
+  /** Project cell i of the tesseract into the scene: a real rotation in 4D, then a slotted layout. */
+  pos4(i, { axis, theta }, out) {
+    const { coords, n } = this.cube;
+    const m = (n - 1) / 2;
+    const c = coords[i];
+    const u = [c[0] - m, c[1] - m, c[2] - m];
+    const w = c[3] - m;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const ua = u[axis];
+    u[axis] = ua * cos - w * sin;
+    const h = ua * sin + w * cos;
+    this.slotPos(h, out);
+    out.x += this.offF(u[0]);
+    out.y -= this.offF(u[1]);
+    out.z -= this.offF(u[2]);
+    return out;
+  }
+
+  /** Turn the tesseract so `axis` becomes the one spread over the cubes. */
+  rotateTo(axis, animate = true) {
+    if (this.dims !== 4) return;
+    const from = this.rot4 ? this.rot4.target : this.hidden4;
+    if (axis === from) return;
+    if (!animate || this.reducedMotion) {
+      this.rot4 = null;
+      this.hidden4 = axis;
+      return;
+    }
+    // Every turn goes through "W hidden": back from the old axis, then out to the new one.
+    const steps = [];
+    if (from !== 3) steps.push({ axis: from, dir: -1 });
+    if (axis !== 3) steps.push({ axis, dir: 1 });
+    this.rot4 = { steps, i: 0, t0: performance.now(), target: axis };
+    this.hidden4 = axis;
+  }
+
+  stepRotation(now) {
+    const r = this.rot4;
+    if (!r || !this.cube || this.dims !== 4) return false;
+    if (now - r.t0 >= ROT4_MS) {
+      r.i++;
+      r.t0 = now;
+      if (r.i >= r.steps.length) this.rot4 = null;
+    }
+    const state = this.rotState();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < this.cube.size; i++) {
+      this.pos4(i, state, v);
+      v.toArray(this.tgt.pos, i * 3);
+      v.toArray(this.cur.pos, i * 3);
+    }
+    if (!this.rot4) {
+      this.computeBasePositions();
+      if (this.view) this.update(this.view);
+    }
+    return true;
+  }
+
+  setPuzzle(n, { instant = true, dims = 3 } = {}) {
+    this.dims = dims;
+    this.cube = dims === 4 ? getTesseract(n) : getCube(n);
+    this.hidden4 = 3;
+    this.rot4 = null;
+    this.snapRotation = true;
     this.cellMesh.count = this.cube.size;
     this.reflection.count = this.cube.size;
     this.uniforms.uNoteGrid.value = this.cube.b;
@@ -730,7 +897,7 @@ export class CubeScene {
       this.cur.op.fill(0);
       this.introAt = performance.now();
     }
-    this.placeFloor();
+    this.placeFloor(this.basePos);
     this.needsRender = true;
   }
 
@@ -738,21 +905,28 @@ export class CubeScene {
     this.spacing = s;
     if (!this.cube) return;
     this.computeBasePositions();
-    this.placeFloor();
+    this.placeFloor(this.basePos);
     if (this.view) this.update(this.view);
   }
 
-  placeFloor() {
-    const e = this.extent;
-    const spread = this.view && this.view.mode === "layer" && !this.view.showcase && this.view.axis === 1 ? LAYER_SPREAD : 0;
-    const y = -e / 2 - spread - 0.55;
+  /** Floor, glow and reflection sit just under the lowest cell of the current layout. */
+  placeFloor(pos = this.tgt.pos) {
+    const size = this.cube.size;
+    let minY = Infinity;
+    let r = 0;
+    for (let i = 0; i < size; i++) {
+      minY = Math.min(minY, pos[i * 3 + 1]);
+      r = Math.max(r, Math.hypot(pos[i * 3], pos[i * 3 + 2]));
+    }
+    r += CELL / 2;
+    const y = minY - CELL / 2 - 0.55;
     this.floor.position.y = y;
-    this.floor.scale.setScalar(e * 2.1);
+    this.floor.scale.setScalar(r * 3);
     this.floorGlow.position.y = y + 0.01;
-    this.floorGlow.scale.setScalar(e * 2.6);
+    this.floorGlow.scale.setScalar(r * 3.7);
     this.reflection.position.y = 2 * y;
     this.reflectUniforms.uFloorY.value = y;
-    this.reflectUniforms.uFade.value = e * 0.28;
+    this.reflectUniforms.uFade.value = r * 0.4;
   }
 
   setTheme(name) {
@@ -789,6 +963,15 @@ export class CubeScene {
   update(view) {
     this.view = view;
     if (!this.cube) return;
+    if (this.dims === 4 && !view.showcase) {
+      if (this.snapRotation) {
+        this.rotateTo(view.axis, false);
+        this.computeBasePositions();
+      } else {
+        this.rotateTo(view.axis);
+      }
+    }
+    this.snapRotation = false;
     const { size, coords, peers } = this.cube;
     const t = this.theme;
     const sel = view.selected ?? -1;
@@ -800,7 +983,10 @@ export class CubeScene {
     const tint = new THREE.Color();
     const tmp = new THREE.Color();
     const glyph = new THREE.Color();
-    const dir = AXIS_DIR[axis];
+    const dir = AXIS_DIR[Math.min(axis, 2)];
+    const flat = this.dims === 3;
+    const rot = this.dims === 4 ? this.rotState() : null;
+    const p4 = new THREE.Vector3();
 
     for (let i = 0; i < size; i++) {
       const v = view.values[i];
@@ -857,7 +1043,12 @@ export class CubeScene {
       let px = this.basePos[o3];
       let py = this.basePos[o3 + 1];
       let pz = this.basePos[o3 + 2];
-      if (mode === "layer" && !view.showcase) {
+      if (rot) {
+        this.pos4(i, rot, p4);
+        px = p4.x;
+        py = p4.y;
+        pz = p4.z;
+      } else if (mode === "layer" && !view.showcase) {
         const c = coords[i][axis];
         const s = c > layer ? LAYER_SPREAD : c < layer ? -LAYER_SPREAD : 0;
         px += dir.x * s;
@@ -882,7 +1073,7 @@ export class CubeScene {
       this.pickable[i] = pick ? 1 : 0;
     }
 
-    if (mode === "layer" && !view.showcase) {
+    if (flat && mode === "layer" && !view.showcase) {
       this.uniforms.uSlice.value.set(dir.x, dir.y, dir.z, this.offset(layer));
     } else {
       this.uniforms.uSlice.value.set(0, 0, 0, 0);
@@ -894,6 +1085,7 @@ export class CubeScene {
     }
     this.placeFloor();
     this.placePlate();
+    this.placeFrame();
     this.needsRender = true;
   }
 
@@ -908,17 +1100,29 @@ export class CubeScene {
   layerCenter() {
     const v = this.view;
     if (!v || v.mode !== "layer") return new THREE.Vector3();
+    if (this.dims === 4) return this.slotPos(v.layer - (this.cube.n - 1) / 2, new THREE.Vector3());
     return AXIS_DIR[v.axis].clone().multiplyScalar(this.offset(v.layer));
+  }
+
+  /** Radius of a sphere around the origin that holds every cell of the resting layout. */
+  layoutRadius() {
+    if (this.dims !== 4) return (this.extent * Math.sqrt(3)) / 2;
+    let r = 0;
+    const p = this.basePos;
+    for (let i = 0; i < this.cube.size; i++) r = Math.max(r, Math.hypot(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]));
+    return r + CELL * 0.7;
   }
 
   resetView({ animate = true } = {}) {
     if (!this.cube) return;
     this.resize();
-    const r = (this.extent * Math.sqrt(3)) / 2;
+    const r = this.layoutRadius();
     const showcase = this.view?.showcase;
     const dist = this.fitDistance(r) * (showcase ? 0.86 : 1.0);
     const target = new THREE.Vector3(0, showcase ? -r * 0.05 : 0, 0);
-    const dir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(62), THREE.MathUtils.degToRad(38));
+    // The tesseract's cubes stand in a plane facing the camera, so look at them more frontally.
+    const [phi, theta] = this.dims === 4 ? [72, 24] : [62, 38];
+    const dir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(phi), THREE.MathUtils.degToRad(theta));
     this.flyTo(target, target.clone().addScaledVector(dir, dist), animate);
   }
 
@@ -928,6 +1132,13 @@ export class CubeScene {
     if (!this.cube || !v) return;
     this.resize();
     const target = this.layerCenter();
+    if (this.dims === 4) {
+      // A tesseract "layer" is a whole cube: frame it from the usual three-quarter angle.
+      const d4 = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(64), THREE.MathUtils.degToRad(34));
+      const dist = this.fitDistance((this.extent * Math.sqrt(3)) / 2) * 0.95;
+      this.flyTo(target, target.clone().addScaledVector(d4, dist), animate);
+      return;
+    }
     const half = this.extent / 2 + 0.3;
     const dist = (half / this.safeTan()) * (tilt ? 1.12 : 1.03) + CELL;
     // The tilt leans toward the front-right-top corner, like the default view.
@@ -942,10 +1153,10 @@ export class CubeScene {
   /** Slides the camera along with the active slice, keeping the user's angle. */
   followLayer() {
     if (!this.cube || !this.view) return;
-    const axisDir = AXIS_DIR[this.view.axis];
     // Retarget a flight that is still under way instead of cutting it short.
     const from = this.flight ? this.flight.toTarget : this.controls.target;
-    const along = axisDir.clone().multiplyScalar(this.layerCenter().sub(from).dot(axisDir));
+    const delta = this.layerCenter().sub(from);
+    const along = this.dims === 4 ? delta : AXIS_DIR[this.view.axis].clone().multiplyScalar(delta.dot(AXIS_DIR[this.view.axis]));
     if (this.flight) {
       this.flight.toTarget.add(along);
       return;
@@ -997,6 +1208,8 @@ export class CubeScene {
   }
 
   setShowcase(on) {
+    this.spinAt = on ? performance.now() + 2200 : Infinity;
+    this.spinIdx = 0;
     this.controls.autoRotate = on && !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.9;
     this.controls.enableZoom = !on;
@@ -1096,6 +1309,15 @@ export class CubeScene {
     this.camera.aspect = fw / fh;
     this.camera.setViewOffset(fw, fh, fw / 2 - cx, fh / 2 - cy, w, h);
     this.view2d = { s, fh };
+    // Tesseract cubes go side by side on wide screens, in a 2×2 grid otherwise.
+    const layout = s.w / s.h > 1.45 ? "row" : "grid";
+    if (layout !== this.layout4) {
+      this.layout4 = layout;
+      if (this.cube && this.dims === 4) {
+        this.computeBasePositions();
+        if (this.view) this.update(this.view);
+      }
+    }
     const g = this.gizmo;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     g.canvas.width = 64 * dpr;
@@ -1226,9 +1448,11 @@ export class CubeScene {
     ctx.clearRect(0, 0, size, size);
     if (!this.cube || this.view?.showcase) return;
     const q = this.camera.quaternion.clone().invert();
-    const axes = AXIS_DIR.map((d, a) => {
-      const v = d.clone().applyQuaternion(q);
-      return { a, x: v.x, y: v.y, z: v.z };
+    // In the tesseract the three visible slots carry whichever axes the 4D turn put there.
+    const slots = this.dims === 4 ? slotMap(this.hidden4) : [0, 1, 2].map((a) => ({ axis: a, sign: 1 }));
+    const axes = slots.map(({ axis, sign }, slot) => {
+      const v = AXIS_DIR[slot].clone().multiplyScalar(sign).applyQuaternion(q);
+      return { a: axis, x: v.x, y: v.y, z: v.z };
     }).sort((p, q2) => p.z - q2.z);
     const c = size / 2;
     const len = size * 0.32;
@@ -1252,9 +1476,21 @@ export class CubeScene {
       ctx.arc(ex, ey, 7.5 * dpr, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#0f1115";
-      ctx.fillText("XYZ"[p.a], ex, ey + 0.5 * dpr);
+      ctx.fillText("XYZW"[p.a], ex, ey + 0.5 * dpr);
     }
     ctx.globalAlpha = 1;
+    if (this.dims === 4) {
+      // The hidden axis has no direction: it is the step from cube to cube.
+      const hx = size - 9 * dpr;
+      const hy = 9 * dpr;
+      ctx.strokeStyle = this.theme.axis[this.hidden4];
+      ctx.lineWidth = 1.6 * dpr;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 7 * dpr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = this.theme.axis[this.hidden4];
+      ctx.fillText("XYZW"[this.hidden4], hx, hy + 0.5 * dpr);
+    }
   }
 
   frame(time) {
@@ -1266,7 +1502,15 @@ export class CubeScene {
     if (this.controls.update(dt)) dirty = true;
     if (this.stepCells(dt, now)) dirty = true;
     if (this.stepPlate(dt)) dirty = true;
+    if (this.stepPlate(dt, this.frameBox)) dirty = true;
+    if (this.stepRotation(now)) dirty = true;
     if (now < this.pulseUntil + 50) dirty = true;
+    // Showcase: the tesseract keeps turning through the fourth dimension.
+    if (this.dims === 4 && this.view?.showcase && !this.rot4 && !this.reducedMotion && now >= this.spinAt) {
+      const seq = [0, 3, 1, 3, 2, 3];
+      this.rotateTo(seq[this.spinIdx++ % seq.length]);
+      this.spinAt = now + ROT4_MS * 2 + 1600;
+    }
     if (!dirty || !this.cube) return;
     this.needsRender = false;
     this.upload(now);

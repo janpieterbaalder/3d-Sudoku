@@ -40,6 +40,7 @@
   --axis-x: #ff7a8a;
   --axis-y: #5ef2b4;
   --axis-z: #6cb8ff;
+  --axis-w: #c99bff;
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
   --radius: 26px;
   --tap: 44px;
@@ -73,6 +74,7 @@
   --axis-x: #d9415b;
   --axis-y: #13955f;
   --axis-z: #2d6fd6;
+  --axis-w: #8a4fd6;
   --shadow: 0 24px 60px rgba(60, 50, 30, 0.16), 0 2px 8px rgba(60, 50, 30, 0.08);
   color-scheme: light;
 }
@@ -506,16 +508,17 @@ body.view-game .picker-only {
 
 .size-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .size-tab {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
   border-radius: 18px;
   background: var(--key);
   border: 1px solid var(--key-border);
@@ -539,12 +542,13 @@ body.view-game .picker-only {
 
 .size-name {
   font-family: "Unbounded", "Outfit", sans-serif;
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 600;
 }
 
 .size-dim {
-  font-size: 12.5px;
+  font-size: 11.5px;
+  white-space: nowrap;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -781,6 +785,7 @@ body.view-game .picker-only {
 
 .axis-seg button[data-axis="0"][aria-checked="true"] { color: var(--axis-x); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--axis-x) 45%, transparent), 0 0 14px color-mix(in srgb, var(--axis-x) 25%, transparent); }
 .axis-seg button[data-axis="1"][aria-checked="true"] { color: var(--axis-y); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--axis-y) 45%, transparent), 0 0 14px color-mix(in srgb, var(--axis-y) 25%, transparent); }
+.axis-seg button[data-axis="3"][aria-checked="true"] { color: var(--axis-w); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--axis-w) 45%, transparent), 0 0 14px color-mix(in srgb, var(--axis-w) 25%, transparent); }
 .axis-seg button[data-axis="2"][aria-checked="true"] { color: var(--axis-z); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--axis-z) 45%, transparent), 0 0 14px color-mix(in srgb, var(--axis-z) 25%, transparent); }
 
 .seg.small button {

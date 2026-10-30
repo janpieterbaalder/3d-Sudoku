@@ -1,4 +1,4 @@
-# Sudoku³ — 3D Sudoku
+# Sudoku³ — sudoku in 3D en 4D
 
 Een echte driedimensionale sudoku in de browser: een kubus van glazen cellen in een full-screen 3D-scène met reflecterende vloer, lichtrails door de gekozen cel, opties (potloodcijfers), een donker en een licht thema, en bediening die is gemaakt voor de telefoon.
 
@@ -15,8 +15,21 @@ Daardoor is elke laag die je uit de kubus snijdt, horizontaal of verticaal, zelf
 |---|---|---|---|
 | Mini 4 × 4 × 4 | 64 | 1–4 | 2 × 2 |
 | Kubus 9 × 9 × 9 | 729 | 1–9 | 3 × 3 |
+| Tesseract 4 × 4 × 4 × 4 | 256 | 1–4 | 2 × 2 |
 
-Er zijn 60 puzzels (30 per formaat) in vier niveaus. Elke puzzel heeft één oplossing en is op te lossen met logische technieken; raden is niet nodig.
+Er zijn 90 puzzels (30 per formaat). Elke puzzel heeft één oplossing en is op te lossen met logische technieken; raden is niet nodig.
+
+## Tesseract: vier dimensies
+
+De Tesseract voegt een vierde richting **W** toe. Je ziet hem als vier kubussen; W is de stap van kubus naar kubus.
+
+- Elke lijn in X, Y, Z én W bevat 1–4 precies één keer.
+- Elk 2 × 2-blok bevat 1–4, in vijf van de zes vlakrichtingen: XY, XZ, YZ, XW en YW. Elke kubus is daardoor zelf een complete 3D-Mini.
+- Alleen het ZW-vlak heeft geen blokken.
+
+Dat laatste is geen keuze maar wiskunde. Met blokken in alle zes vlakrichtingen moeten de 16 cellen van één 2 × 2 × 2 × 2-blok verschillen zodra ze in één of twee coördinaten verschillen. Een cijfer mag dan alleen terugkomen op afstand 3 of meer, en een binaire code van lengte 4 met afstand 3 heeft hooguit 2 woorden. Er zijn dus minstens 8 cijfers nodig, en er zijn er 4. Uitputtend zoeken bevestigt dat: met zes vlakken bestaat geen enkele 4⁴-oplossing, met vijf wel. Bij 9 × 9 × 9 × 9 kan het wél met alle zes vlakken (de ternaire tetracode maakt het mogelijk).
+
+Met X / Y / Z / W draai je de tesseract in de vierde dimensie: een echte rotatie van 90° in het XW-, YW- of ZW-vlak, geanimeerd. De gekozen as wordt over de vier kubussen verdeeld en W neemt zijn plaats in. Zo bekijk je dezelfde puzzel in andere doorsneden. De vier kubussen staan in een 2 × 2-raster, op brede schermen naast elkaar. Door de gekozen cel lopen vier lichtrails, één per as; de W-rail verbindt dezelfde plek in alle vier de kubussen.
 
 ## Spelen
 
@@ -62,8 +75,8 @@ Voortgang, tijd, thema en instellingen worden lokaal in de browser bewaard (`loc
 ```
 index.html              opmaak, import map voor three.js
 css/styles.css          thema's (donker/licht) en mobiel-first layout
-js/engine.js            kubusgeometrie, solver, logische grader, generator
-js/scene.js             Three.js-scène: cellen, cijfers, camera, picking
+js/engine.js            geometrie in 3D en 4D, solver, logische grader, generator
+js/scene.js             Three.js-scène: cellen, cijfers, 4D-rotatie en -projectie, camera, picking
 js/main.js              spelstatus, invoer, opslag, puzzelkeuze
 scripts/generate-puzzles.mjs   genereert puzzles.json
 vendor/three/           three.js r184 (MIT)

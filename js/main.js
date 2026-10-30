@@ -1,10 +1,27 @@
-import { getCube, computeCandidates, findConflicts, nextStep } from "./engine.js";
-import { CubeScene, THEMES } from "./scene.js";
+import { getCube, getTesseract, computeCandidates, findConflicts, nextStep } from "./engine.js";
+import { CubeScene, THEMES, slotMap } from "./scene.js";
 
 const STORAGE_KEY = "sudoku3d.state.v1";
 const TIER_LABEL = { easy: "Eenvoudig", medium: "Gemiddeld", hard: "Moeilijk", expert: "Expert" };
-const SIZE_LABEL = { 4: "Mini", 9: "Kubus" };
-const LINE_NAME = ["rij", "kolom", "pilaar"];
+// Puzzle families, keyed by the id prefix in puzzles.json.
+const GROUPS = {
+  4: { label: "Mini", size: 4, dims: 3 },
+  9: { label: "Kubus", size: 9, dims: 3 },
+  t: { label: "Tesseract", size: 4, dims: 4 },
+};
+const groupOf = (p) => p.id.split("-")[0];
+const HERO = {
+  3: ["Echte 3D-sudoku", "Elke snede van de kubus is een sudoku. In alle drie de richtingen."],
+  4: ["Sudoku in vier dimensies", "Vier kubussen, verbonden door een vierde richting: W."],
+};
+const gridOf = (g) => (g.dims === 4 ? getTesseract(g.size) : getCube(g.size));
+const LINE_NAME = ["rij", "kolom", "pilaar", "W-lijn"];
+const AXES = "XYZW";
+// Mode buttons keep their ids; in the tesseract "Kubus" shows everything and "Laag" one cube.
+const MODE_LABELS = {
+  3: { cube: ["Kubus", "Hele kubus"], layer: ["Laag", "Eén laag"], focus: ["Focus", "Focus op cel"] },
+  4: { cube: ["Alles", "Hele tesseract"], layer: ["Kubus", "Eén kubus"], focus: ["Focus", "Focus op cel"] },
+};
 const THEME_COLOR = { dark: "#05070c", light: "#ece8e1" };
 
 const $ = (id) => document.getElementById(id);
@@ -65,7 +82,7 @@ const store = {
   load() {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-      return { puzzles: parsed.puzzles || {}, last: parsed.last ?? null, settings: parsed.settings || {}, size: parsed.size };
+      return { puzzles: parsed.puzzles || {}, last: parsed.last ?? null, settings: parsed.settings || {}, group: parsed.group ?? parsed.size };
     } catch {
       return { puzzles: {}, last: null, settings: {} };
     }
@@ -86,7 +103,7 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
 let puzzles = [];
 let scene = null;
 let game = null;
-const ui = { view: "picker", size: persisted.size === 4 ? 4 : 9, tier: "all" };
+const ui = { view: "picker", group: GROUPS[persisted.group] ? String(persisted.group) : "9", tier: "all" };
 
 function persist() {
   if (game) {
@@ -99,7 +116,7 @@ function persist() {
     };
   }
   persisted.settings = settings;
-  persisted.size = ui.size;
+  persisted.group = ui.group;
   store.save(persisted);
 }
 
@@ -196,15 +213,19 @@ function showPicker() {
   showcase();
 }
 
-/** The picker shows a slowly turning cube of the selected size. */
+/** The picker shows a slowly turning cube of the selected family; the tesseract turns through 4D. */
 function showcase() {
   if (!scene) return;
-  const sample = puzzles.find((p) => p.size === ui.size);
-  const cube = getCube(ui.size);
+  const g = GROUPS[ui.group];
+  const [kicker, line] = HERO[g.dims];
+  els.hero.querySelector(".hero-kicker").textContent = kicker;
+  els.hero.querySelector(".hero-line").textContent = line;
+  const sample = puzzles.find((p) => groupOf(p) === ui.group);
+  const cube = gridOf(g);
   // A solved cube: clues in white, the rest in the "filled in" colour.
   const given = digits(sample.puzzle);
   const solution = digits(sample.solution);
-  scene.setPuzzle(ui.size);
+  scene.setPuzzle(g.size, { dims: g.dims });
   scene.update({
     values: solution,
     given,
@@ -212,7 +233,7 @@ function showcase() {
     conflicts: new Set(),
     selected: null,
     mode: "cube",
-    axis: 2,
+    axis: g.dims === 4 ? 3 : 2,
     layer: 0,
     showcase: true,
   });
@@ -221,21 +242,23 @@ function showcase() {
 }
 
 function renderPicker() {
-  els.sizeTabs.forEach((t) => t.classList.toggle("active", Number(t.dataset.size) === ui.size));
-  els.sizeTabs.forEach((t) => t.setAttribute("aria-selected", String(Number(t.dataset.size) === ui.size)));
-  if (ui.size === 4 && ui.tier === "expert") ui.tier = "all";
+  els.sizeTabs.forEach((t) => t.classList.toggle("active", t.dataset.group === ui.group));
+  els.sizeTabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.group === ui.group)));
+  const inGroup = puzzles.filter((p) => groupOf(p) === ui.group);
+  const tiers = new Set(inGroup.map((p) => p.difficulty));
+  if (ui.tier !== "all" && !tiers.has(ui.tier)) ui.tier = "all";
   els.tierTabs.forEach((t) => {
-    t.hidden = ui.size === 4 && t.dataset.tier === "expert";
+    t.hidden = t.dataset.tier !== "all" && !tiers.has(t.dataset.tier);
     t.classList.toggle("active", t.dataset.tier === ui.tier);
   });
 
-  const list = puzzles.filter((p) => p.size === ui.size && (ui.tier === "all" || p.difficulty === ui.tier));
+  const list = inGroup.filter((p) => ui.tier === "all" || p.difficulty === ui.tier);
   els.list.innerHTML = list
     .map((p) => {
       const saved = persisted.puzzles[p.id];
       const done = saved?.done;
       const pct = saved && !done ? progressOf(p, saved) : 0;
-      const label = `${SIZE_LABEL[p.size]} ${puzzleNumber(p)}, ${TIER_LABEL[p.difficulty]}${done ? ", opgelost" : pct ? `, ${Math.round(pct * 100)}% ingevuld` : ""}`;
+      const label = `${GROUPS[groupOf(p)].label} ${puzzleNumber(p)}, ${TIER_LABEL[p.difficulty]}${done ? ", opgelost" : pct ? `, ${Math.round(pct * 100)}% ingevuld` : ""}`;
       return `<button class="pcard${done ? " done" : ""}" data-id="${p.id}" data-tier="${p.difficulty}" aria-label="${label}">
         <span class="pnum">${puzzleNumber(p)}</span>
         <span class="ptier">${TIER_LABEL[p.difficulty]}</span>
@@ -250,7 +273,8 @@ function renderPicker() {
 function openPuzzle(id) {
   const p = puzzles.find((x) => x.id === id);
   if (!p) return;
-  const cube = getCube(p.size);
+  const group = GROUPS[groupOf(p)];
+  const cube = gridOf(group);
   const saved = persisted.puzzles[id];
   const given = digits(p.puzzle);
   const values = saved?.v ? digits(saved.v) : given.slice();
@@ -260,6 +284,7 @@ function openPuzzle(id) {
   game = {
     id,
     n: p.size,
+    dims: group.dims,
     cube,
     difficulty: p.difficulty,
     given,
@@ -270,7 +295,7 @@ function openPuzzle(id) {
     selected: null,
     notesMode: false,
     mode: saved?.view?.m || (p.size === 9 ? "layer" : "cube"),
-    axis: saved?.view?.a ?? 2,
+    axis: saved?.view?.a ?? (group.dims === 4 ? 3 : 2),
     layer: saved?.view?.l ?? 0,
     marked: new Set(),
     completed: !!saved?.done,
@@ -278,12 +303,13 @@ function openPuzzle(id) {
     startedAt: null,
   };
   persisted.last = id;
-  ui.size = p.size;
+  ui.group = groupOf(p);
   persist();
 
   setView("game");
-  els.gtName.textContent = `${SIZE_LABEL[p.size]} ${puzzleNumber(p)}`;
-  els.gtMeta.textContent = `${p.size} × ${p.size} × ${p.size}`;
+  els.gtName.textContent = `${group.label} ${puzzleNumber(p)}`;
+  els.gtMeta.textContent = Array(group.dims).fill(p.size).join(" × ");
+  configureToolbar();
   els.metaDiff.textContent = TIER_LABEL[p.difficulty];
   els.metaDiff.dataset.tier = p.difficulty;
   buildPad();
@@ -295,7 +321,7 @@ function openPuzzle(id) {
 
 function attachScene() {
   scene.setShowcase(false);
-  scene.setPuzzle(game.n);
+  scene.setPuzzle(game.n, { dims: game.dims });
   refresh();
   if (game.mode === "layer") scene.faceLayer({ tilt: true });
   else scene.resetView();
@@ -319,7 +345,7 @@ function resetPuzzle() {
 
 function nextPuzzle() {
   if (!game) return;
-  const list = puzzles.filter((p) => p.size === game.n);
+  const list = puzzles.filter((p) => groupOf(p) === ui.group);
   const idx = list.findIndex((p) => p.id === game.id);
   const next = list.slice(idx + 1).find((p) => !persisted.puzzles[p.id]?.done) || list[(idx + 1) % list.length];
   openPuzzle(next.id);
@@ -346,6 +372,25 @@ function refresh() {
   updateToolbar();
   updatePad();
   updateHud();
+}
+
+/** Relabel the shared toolbar for a cube (3D) or a tesseract (4D). */
+function configureToolbar() {
+  const labels = MODE_LABELS[game.dims];
+  for (const b of els.modeSeg.querySelectorAll("button")) {
+    const [text, aria] = labels[b.dataset.mode];
+    b.querySelector("span").textContent = text;
+    b.setAttribute("aria-label", aria);
+    b.title = aria;
+  }
+  for (const b of els.axisSeg.querySelectorAll("button")) {
+    const a = Number(b.dataset.axis);
+    b.hidden = a >= game.dims;
+    b.title = game.dims === 4 ? `4D-draai: spreid ${AXES[a]} over de vier kubussen` : `Lagen langs ${AXES[a]}`;
+  }
+  els.axisSeg.setAttribute("aria-label", game.dims === 4 ? "Welke as over de kubussen verdeeld is" : "Richting van de lagen");
+  els.layerPrev.setAttribute("aria-label", game.dims === 4 ? "Vorige kubus" : "Vorige laag");
+  els.layerNext.setAttribute("aria-label", game.dims === 4 ? "Volgende kubus" : "Volgende laag");
 }
 
 function updateToolbar() {
@@ -376,7 +421,7 @@ function updatePad() {
   }
   for (const btn of els.pad.children) {
     const d = Number(btn.dataset.n);
-    const left = n * n - counts[d];
+    const left = cube.size / n - counts[d];
     btn.classList.toggle("complete", left <= 0);
     btn.classList.toggle("blocked", blocked.has(d));
     btn.classList.toggle("noted", game.notesMode && sel != null && !values[sel] && !!(game.notes[sel] & (1 << (d - 1))));
@@ -521,7 +566,7 @@ function hint() {
 
 function houseName(h) {
   const info = game.cube.houseInfo[h];
-  return info.kind === "line" ? LINE_NAME[info.axis] : "blok";
+  return info.kind === "line" ? LINE_NAME[info.axis] : `blok (${AXES[info.plane[0]]}${AXES[info.plane[1]]}-vlak)`;
 }
 
 function setMode(mode) {
@@ -541,7 +586,7 @@ function setMode(mode) {
 }
 
 function setAxis(axis) {
-  if (!game || game.axis === axis) return;
+  if (!game || game.axis === axis || axis >= game.dims) return;
   game.axis = axis;
   if (game.selected != null) game.layer = game.cube.coords[game.selected][axis];
   persist();
@@ -552,39 +597,41 @@ function setAxis(axis) {
 function stepLayer(delta) {
   if (!game) return;
   const layer = Math.max(0, Math.min(game.n - 1, game.layer + delta));
-  if (game.mode !== "layer") {
-    game.mode = "layer";
-    game.layer = layer;
-    refresh();
-    if (settings.autoFace) scene?.faceLayer({ tilt: true });
-    else scene?.followLayer();
-    persist();
-    return;
-  }
-  if (layer === game.layer) return;
+  const entering = game.mode !== "layer";
+  if (!entering && layer === game.layer) return;
+  game.mode = "layer";
   game.layer = layer;
   // Keep the selection on the same line through the cube.
   if (game.selected != null) {
     const c = [...game.cube.coords[game.selected]];
     c[game.axis] = layer;
-    game.selected = game.cube.index(c[0], c[1], c[2]);
+    game.selected = game.cube.index(...c);
   }
   persist();
   refresh();
-  followCamera();
+  if (entering && settings.autoFace) scene?.faceLayer({ tilt: true });
+  else followCamera();
 }
 
 function followCamera() {
   scene?.followLayer();
 }
 
-function moveSelection(dx, dy) {
+function moveSelection(dx, dy, dz = 0) {
   if (!game) return;
   const { cube, axis, n } = game;
   if (game.selected == null) {
-    const c = [0, 0, 0];
+    const c = Array(game.dims).fill(0);
     c[axis] = game.layer;
-    game.selected = cube.index(c[0], c[1], c[2]);
+    game.selected = cube.index(...c);
+  } else if (game.dims === 4) {
+    // Follow the visible slots of the turned tesseract: right, down, depth.
+    const c = [...cube.coords[game.selected]];
+    slotMap(axis).forEach(({ axis: a, sign }, slot) => {
+      c[a] += sign * [dx, dy, dz][slot];
+    });
+    for (let k = 0; k < 4; k++) c[k] = Math.max(0, Math.min(n - 1, c[k]));
+    game.selected = cube.index(...c);
   } else {
     const c = [...cube.coords[game.selected]];
     // Screen-relative movement for each face orientation.
@@ -601,14 +648,15 @@ function moveSelection(dx, dy) {
     for (let k = 0; k < 3; k++) c[k] = Math.max(0, Math.min(n - 1, c[k]));
     game.selected = cube.index(c[0], c[1], c[2]);
   }
+  if (game.mode === "cube") game.layer = cube.coords[game.selected][axis];
   refresh();
 }
 
 function centerCell() {
   const m = (game.n - 1) >> 1;
-  const c = [m, m, m];
+  const c = Array(game.dims).fill(m);
   c[game.axis] = game.layer;
-  return game.cube.index(c[0], c[1], c[2]);
+  return game.cube.index(...c);
 }
 
 function checkComplete() {
@@ -735,9 +783,8 @@ function bindUI() {
 
   els.sizeTabs.forEach((t) =>
     t.addEventListener("click", () => {
-      const size = Number(t.dataset.size);
-      if (size === ui.size) return;
-      ui.size = size;
+      if (t.dataset.group === ui.group) return;
+      ui.group = t.dataset.group;
       persist();
       renderPicker();
       showcase();
@@ -833,11 +880,13 @@ function onKey(e) {
   else if (k === "Backspace" || k === "Delete" || k === "0") eraseCell();
   else if (k === "ArrowLeft") moveSelection(-1, 0);
   else if (k === "ArrowRight") moveSelection(1, 0);
+  else if (k === "ArrowUp" && e.shiftKey && game.dims === 4) moveSelection(0, 0, 1);
+  else if (k === "ArrowDown" && e.shiftKey && game.dims === 4) moveSelection(0, 0, -1);
   else if (k === "ArrowUp") moveSelection(0, -1);
   else if (k === "ArrowDown") moveSelection(0, 1);
   else if (k === "[" || k === "PageUp" || k === ",") stepLayer(-1);
   else if (k === "]" || k === "PageDown" || k === ".") stepLayer(1);
-  else if (/^[xyz]$/i.test(k)) setAxis("xyz".indexOf(k.toLowerCase()));
+  else if (/^[xyzw]$/i.test(k)) setAxis("xyzw".indexOf(k.toLowerCase()));
   else if (/^c$/i.test(k)) setMode("cube");
   else if (/^l$/i.test(k)) setMode("layer");
   else if (/^f$/i.test(k)) setMode("focus");
